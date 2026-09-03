@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>PopTag 꾸미기 카탈로그</title>
+  <style>
+    :root { --bg:#080b12; --panel:#101624; --panel2:#171f31; --line:#26334a; --text:#f4f7fb; --muted:#9aa8bd; --cyan:#62e4ff; --yellow:#ffdf63; --orange:#ff9b55; --card:270px; }
+    * { box-sizing:border-box; }
+    html { scrollbar-color:#42516c #0b0f18; }
+    body { margin:0; color:var(--text); background:radial-gradient(circle at 75% -10%,#173150 0,transparent 32rem),var(--bg); font-family:"Malgun Gothic","Noto Sans KR",system-ui,sans-serif; }
+    button,input,select { font:inherit; }
+    header { position:sticky; top:0; z-index:20; padding:18px 24px 14px; background:rgba(8,11,18,.92); border-bottom:1px solid var(--line); backdrop-filter:blur(18px); }
+    .top { display:flex; align-items:end; justify-content:space-between; gap:20px; margin-bottom:14px; }
+    h1 { margin:0; font-size:clamp(1.35rem,3vw,2rem); letter-spacing:-.04em; }
+    .count { color:var(--cyan); font-weight:800; }
+    .hint { color:var(--muted); font-size:.88rem; }
+    .controls { display:grid; grid-template-columns:minmax(220px,1fr) auto auto; gap:9px; }
+    .tabs { display:flex; gap:7px; margin-bottom:12px; overflow-x:auto; scrollbar-width:thin; }
+    .tab { min-height:40px; padding:0 16px; color:var(--muted); background:#111827; border:1px solid var(--line); border-radius:999px; cursor:pointer; white-space:nowrap; font-weight:800; }
+    .tab.active { color:#071019; background:var(--cyan); border-color:var(--cyan); }
+    .control { min-height:44px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:0 13px; }
+    input:focus,select:focus,button:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+    button.control { cursor:pointer; }
+    main { padding:22px 24px 80px; }
+    #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--card)),1fr)); gap:14px; }
+    .card { min-width:0; padding:0; overflow:hidden; text-align:left; color:inherit; background:linear-gradient(145deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:14px; cursor:pointer; box-shadow:0 10px 30px rgba(0,0,0,.18); transition:.16s transform,.16s border-color,.16s box-shadow; }
+    .card:hover { transform:translateY(-3px); border-color:#527195; box-shadow:0 14px 35px rgba(0,0,0,.3); }
+    .thumb { width:100%; height:180px; display:block; object-fit:contain; object-position:center; padding:10px; background-color:#dfe5ec; background-image:linear-gradient(45deg,#b8c2cd 25%,transparent 25%),linear-gradient(-45deg,#b8c2cd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#b8c2cd 75%),linear-gradient(-45deg,transparent 75%,#b8c2cd 75%); background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0; image-rendering:pixelated; border-bottom:1px solid var(--line); }
+    .body { padding:12px 13px 14px; }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .code { color:var(--yellow); font-size:1.02rem; font-weight:900; letter-spacing:.035em; }
+    .badge { flex:0 0 auto; padding:4px 7px; border-radius:999px; color:#c2d3ea; background:#202b40; font-size:.75rem; }
+    .name { height:2.8em; margin-top:8px; line-height:1.4; overflow:hidden; font-size:.9rem; overflow-wrap:anywhere; }
+    .resource { margin-top:8px; color:var(--muted); font: .76rem/1.3 ui-monospace,Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .unlinked { border-color:#5b4535; }
+    .unlinked .name { color:#deb583; }
+    .empty { grid-column:1/-1; padding:16vh 20px; text-align:center; color:var(--muted); }
+    dialog { width:min(1180px,94vw); max-height:92vh; padding:0; color:var(--text); background:#0d1320; border:1px solid #435472; border-radius:16px; box-shadow:0 30px 90px #000; }
+    dialog::backdrop { background:rgba(0,0,0,.76); backdrop-filter:blur(5px); }
+    .modal-head { position:sticky; top:0; z-index:2; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 16px; background:rgba(13,19,32,.96); border-bottom:1px solid var(--line); }
+    .modal-title { min-width:0; }
+    .modal-title strong { color:var(--yellow); font-size:1.1rem; }
+    .modal-title span { display:block; margin-top:3px; color:var(--muted); font-size:.82rem; overflow-wrap:anywhere; }
+    .close { width:42px; height:42px; flex:0 0 auto; color:white; background:#202b40; border:1px solid #3a4963; border-radius:11px; cursor:pointer; font-size:1.35rem; }
+    .modal-content { padding:18px; overflow:auto; }
+    .full { width:100%; height:min(62vh,620px); display:block; object-fit:contain; padding:16px; background-color:#dfe5ec; background-image:linear-gradient(45deg,#b8c2cd 25%,transparent 25%),linear-gradient(-45deg,#b8c2cd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#b8c2cd 75%),linear-gradient(-45deg,transparent 75%,#b8c2cd 75%); background-size:20px 20px; background-position:0 0,0 10px,10px -10px,-10px 0; border-radius:10px; image-rendering:pixelated; }
+    .details { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:14px; }
+    .detail { min-width:0; padding:12px; background:#151d2c; border:1px solid var(--line); border-radius:10px; }
+    .detail small { display:block; color:var(--muted); margin-bottom:5px; }
+    .detail div { overflow-wrap:anywhere; }
+    #composer { display:none; grid-template-columns:minmax(280px,420px) minmax(300px,1fr); align-items:start; gap:22px; max-width:1040px; margin:0 auto; }
+    .stage-panel,.pick-panel { background:linear-gradient(145deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:16px; padding:18px; }
+    .stage { position:relative; width:min(100%,520px); aspect-ratio:1; margin:auto; overflow:hidden; border:1px solid #526580; border-radius:12px; background-color:#dfe5ec; background-image:linear-gradient(45deg,#b8c2cd 25%,transparent 25%),linear-gradient(-45deg,#b8c2cd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#b8c2cd 75%),linear-gradient(-45deg,transparent 75%,#b8c2cd 75%); background-size:24px 24px; background-position:0 0,0 12px,12px -12px,-12px 0; }
+    .layer { position:absolute; left:0; top:0; width:140%; height:140%; object-fit:fill; image-rendering:pixelated; pointer-events:none; }
+    .picker { margin-bottom:15px; }
+    .picker label { display:block; margin-bottom:6px; color:var(--yellow); font-weight:800; }
+    .picker select { width:100%; min-height:45px; color:var(--text); background:#0f1624; border:1px solid var(--line); border-radius:10px; padding:0 10px; }
+    .render-button { width:100%; min-height:48px; color:#061017; background:var(--cyan); border:0; border-radius:11px; cursor:pointer; font-weight:900; }
+    .composer-note { margin:12px 0 0; color:var(--muted); font-size:.84rem; line-height:1.5; }
+    @media (max-width:760px) { header,main { padding-left:14px; padding-right:14px; } .top { align-items:start; flex-direction:column; gap:4px; } .controls { grid-template-columns:1fr 1fr; } .controls input { grid-column:1/-1; } .details { grid-template-columns:1fr 1fr; } .thumb { height:160px; } #composer { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="top"><div><h1>PopTag 꾸미기 카탈로그</h1><div class="hint">카드를 누르면 애니메이션을 크게 볼 수 있습니다.</div></div><div class="count" id="count"></div></div>
+    <nav class="tabs" aria-label="종류 선택" id="tabs"></nav>
+    <div class="controls">
+      <input class="control" id="search" type="search" placeholder="배경 번호, 이름, 리소스 검색" autocomplete="off">
+      <select class="control" id="sort" aria-label="정렬"><option value="code">번호순</option><option value="frames">프레임 많은 순</option><option value="name">이름순</option></select>
+      <select class="control" id="size" aria-label="카드 크기"><option value="230">작게</option><option value="270" selected>보통</option><option value="340">크게</option></select>
+    </div>
+  </header>
+  <main><section id="grid" aria-live="polite"></section><section id="composer"><div class="stage-panel"><div class="stage" id="stage"></div><p class="composer-note">실제 100×100 슬롯 영역만 표시합니다. 저장 버튼을 누르면 약 3초 분량의 반복 GIF를 만듭니다.</p></div><div class="pick-panel" id="pickers"></div></section></main>
+  <dialog id="viewer">
+    <div class="modal-head"><div class="modal-title"><strong id="vcode"></strong><span id="vname"></span></div><button class="close" id="close" aria-label="닫기">×</button></div>
+    <div class="modal-content"><img class="full" id="vimg" alt=""><div class="details" id="details"></div></div>
+  </dialog>
+  <script src="catalog-data.js"></script>
+  <script>
+    const $=s=>document.querySelector(s), grid=$('#grid'), search=$('#search'), sort=$('#sort'), viewer=$('#viewer');
+    const categoryLabels={background:'배경',flag:'깃발',prop:'소품',effect:'효과'}; const layers=['background','flag','prop','effect']; let category='background';
+    const esc=s=>String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
+    const label=r=>r.item_names.length?r.item_names.join(' / '):'이름 없음 · 리소스만 있음';
+    const preview=r=>`assets/${r.preview_file||r.strip_file}`;
+    const prefix=r=>({background:'BG',flag:'FLAG',prop:'PROP',effect:'FX'}[r.category]);
+    function filtered(){ const q=search.value.trim().toLocaleLowerCase(); let a=CATALOG.filter(r=>r.category===category&&(!q||[r.code,label(r),r.resource,...r.item_ids].join(' ').toLocaleLowerCase().includes(q))); if(sort.value==='frames')a.sort((x,y)=>y.frame_count-x.frame_count||x.code-y.code); else if(sort.value==='name')a.sort((x,y)=>label(x).localeCompare(label(y),'ko')); else a.sort((x,y)=>x.code-y.code); return a; }
+    function renderTabs(){ const tabs=Object.entries(categoryLabels).map(([key,name])=>{const n=CATALOG.filter(r=>r.category===key).length;return `<button class="tab ${key===category?'active':''}" data-category="${key}">${name} <span>${n.toLocaleString()}</span></button>`}); tabs.push(`<button class="tab ${category==='tryon'?'active':''}" data-category="tryon">입혀보기</button>`); $('#tabs').innerHTML=tabs.join(''); }
+    function render(){ const rows=filtered(), total=CATALOG.filter(r=>r.category===category).length; $('#count').textContent=`${rows.length.toLocaleString()} / ${total.toLocaleString()}개`; grid.innerHTML=rows.length?rows.map(r=>`<button class="card ${r.item_table_linked?'':'unlinked'}" data-code="${r.code}" data-category="${r.category}"><img class="thumb" loading="lazy" src="${preview(r)}" alt="${categoryLabels[r.category]} ${String(r.code).padStart(4,'0')} 미리보기"><div class="body"><div class="row"><span class="code">${prefix(r)} ${String(r.code).padStart(4,'0')}</span><span class="badge">${r.frame_count>1?'GIF · ':''}${r.frame_count} 프레임</span></div><div class="name">${esc(label(r))}</div><div class="resource">${esc(r.resource)}</div></div></button>`).join(''):'<div class="empty">조건에 맞는 항목이 없습니다.</div>'; }
+    function openRow(cat,code){ const r=CATALOG.find(x=>x.category===cat&&x.code===code); if(!r)return; $('#vcode').textContent=`${prefix(r)} ${String(r.code).padStart(4,'0')} · ${r.frame_count} 프레임`; $('#vname').textContent=label(r); $('#vimg').src=preview(r); $('#vimg').alt=`${categoryLabels[r.category]} ${r.code} ${r.frame_count>1?'움직이는 GIF':'미리보기'}`; const cells=[['종류',categoryLabels[r.category]],['리소스',r.resource],['크기',r.frame_dimensions.join(', ')],['표시 형식',r.frame_count>1?'움직이는 GIF':'정지 이미지'],['아이템 ID',r.item_ids.length?r.item_ids.join(', '):'없음']]; $('#details').innerHTML=cells.map(([k,v])=>`<div class="detail"><small>${k}</small><div>${esc(v)}</div></div>`).join(''); viewer.showModal(); }
+    function setupComposer(){ const pickers=$('#pickers'), stage=$('#stage'); pickers.innerHTML=layers.map(cat=>`<div class="picker"><label for="pick-${cat}">${categoryLabels[cat]}</label><select id="pick-${cat}" data-layer="${cat}"><option value="">착용 안 함</option>${CATALOG.filter(r=>r.category===cat).map(r=>`<option value="${r.code}">${String(r.code).padStart(4,'0')} · ${esc(label(r))}</option>`).join('')}</select></div>`).join('')+'<button class="render-button" id="render">애니메이션 GIF로 저장</button>'; stage.innerHTML=layers.map(cat=>`<img class="layer" id="layer-${cat}" alt="">`).join(''); pickers.addEventListener('change',e=>{const s=e.target.closest('select[data-layer]');if(!s)return;const img=$(`#layer-${s.dataset.layer}`);const r=CATALOG.find(x=>x.category===s.dataset.layer&&x.code===Number(s.value));img.src=r?`assets/${r.layer_file}`:'';img.style.display=r?'block':'none';}); $('#render').onclick=renderComposition; }
+    const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+    function palette(){ const p=new Uint8Array(768); for(let i=1;i<253;i++){let n=i-1,r=Math.floor(n/42),q=n%42,g=Math.floor(q/6),b=q%6;p[i*3]=r*51;p[i*3+1]=Math.round(g*255/6);p[i*3+2]=b*51;} return p; }
+    function indexed(image){ const src=image.data,out=new Uint8Array(image.width*image.height);for(let i=0,j=0;i<src.length;i+=4,j++){if(src[i+3]<64){out[j]=0;continue;}const r=Math.round(src[i]/51),g=Math.round(src[i+1]*6/255),b=Math.round(src[i+2]/51);out[j]=1+r*42+g*6+b;}return out; }
+    function lzw(data){ const clear=256,end=257,bytes=[];let cur=0,bits=0,next=258,dict=new Map();const put=code=>{cur|=code<<bits;bits+=9;while(bits>=8){bytes.push(cur&255);cur>>>=8;bits-=8;}};const reset=()=>{dict=new Map();next=258;};put(clear);let prefix=data[0];for(let i=1;i<data.length;i++){const k=data[i],key=prefix+','+k;if(dict.has(key)){prefix=dict.get(key);}else{put(prefix);if(next<500)dict.set(key,next++);else{put(clear);reset();}prefix=k;}}put(prefix);put(end);if(bits)bytes.push(cur&255);return bytes; }
+    function word(a,n){a.push(n&255,(n>>8)&255);} function blocks(a,b){for(let i=0;i<b.length;i+=255){const n=Math.min(255,b.length-i);a.push(n,...b.slice(i,i+n));}a.push(0);}
+    function makeGif(frames,w,h){const a=[71,73,70,56,57,97];word(a,w);word(a,h);a.push(247,0,0,...palette(),33,255,11,...[...'NETSCAPE2.0'].map(c=>c.charCodeAt(0)),3,1,0,0,0);for(const f of frames){a.push(33,249,4,9);word(a,12);a.push(0,0,44);word(a,0);word(a,0);word(a,w);word(a,h);a.push(0,8);blocks(a,lzw(indexed(f)));}a.push(59);return new Blob([new Uint8Array(a)],{type:'image/gif'});}
+    async function renderComposition(){ const button=$('#render');button.disabled=true;button.textContent='GIF 만드는 중…';try{const canvas=document.createElement('canvas');canvas.width=100;canvas.height=100;const ctx=canvas.getContext('2d',{willReadFrequently:true}),frames=[];for(let n=0;n<24;n++){ctx.clearRect(0,0,100,100);layers.forEach(cat=>{const img=$(`#layer-${cat}`);if(img&&img.src&&img.complete&&img.naturalWidth)ctx.drawImage(img,0,0,140,140);});frames.push(ctx.getImageData(0,0,100,100));await sleep(120);}const url=URL.createObjectURL(makeGif(frames,100,100)),a=document.createElement('a');a.download=`poptag-착용-${Date.now()}.gif`;a.href=url;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}finally{button.disabled=false;button.textContent='애니메이션 GIF로 저장';}}
+    function showCurrent(){ const composing=category==='tryon'; $('.controls').style.display=composing?'none':'grid'; grid.style.display=composing?'none':'grid'; $('#composer').style.display=composing?'grid':'none'; if(!composing)render(); }
+    [search,sort].forEach(el=>el.addEventListener('input',render)); $('#size').addEventListener('input',e=>document.documentElement.style.setProperty('--card',`${e.target.value}px`)); $('#tabs').addEventListener('click',e=>{const t=e.target.closest('.tab');if(!t)return;category=t.dataset.category;renderTabs();showCurrent();}); grid.addEventListener('click',e=>{const c=e.target.closest('.card');if(c)openRow(c.dataset.category,Number(c.dataset.code));}); $('#close').onclick=()=>viewer.close(); viewer.addEventListener('click',e=>{if(e.target===viewer)viewer.close();});
+    setupComposer(); renderTabs(); showCurrent();
+  </script>
+</body>
+</html>
