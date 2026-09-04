@@ -6,37 +6,56 @@
   <meta name="color-scheme" content="dark">
   <title>Poptag-Viewer</title>
   <style>
-    :root { --bg:#080b12; --panel:#101624; --panel2:#171f31; --line:#26334a; --text:#f4f7fb; --muted:#9aa8bd; --cyan:#62e4ff; --yellow:#ffdf63; --orange:#ff9b55; --card:270px; --thumb:180px; }
+    :root {
+      --bg:#080b12; --panel:#101624; --panel2:#171f31; --line:#28364e;
+      --text:#f4f7fb; --muted:#9aa8bd; --cyan:#62e4ff; --yellow:#ffdf63;
+      --card:270px; --thumb:180px;
+    }
     * { box-sizing:border-box; }
     html { scrollbar-color:#42516c #0b0f18; }
     body { margin:0; color:var(--text); background:radial-gradient(circle at 75% -10%,#173150 0,transparent 32rem),var(--bg); font-family:"Malgun Gothic","Noto Sans KR",system-ui,sans-serif; }
     button,input,select { font:inherit; }
-    header { position:sticky; top:0; z-index:20; padding:18px 24px 14px; background:rgba(8,11,18,.92); border-bottom:1px solid var(--line); backdrop-filter:blur(18px); }
+    button { color:inherit; }
+    header { position:sticky; top:0; z-index:20; padding:18px 24px 14px; background:rgba(8,11,18,.94); border-bottom:1px solid var(--line); backdrop-filter:blur(18px); }
     .top { display:flex; align-items:end; justify-content:space-between; gap:20px; margin-bottom:14px; }
     h1 { margin:0; font-size:clamp(1.35rem,3vw,2rem); letter-spacing:-.04em; }
     .count { color:var(--cyan); font-weight:800; }
-    .hint { color:var(--muted); font-size:.88rem; }
-    .controls { display:grid; grid-template-columns:minmax(220px,1fr) auto auto; gap:9px; }
     .tabs { display:flex; gap:7px; margin-bottom:12px; overflow-x:auto; scrollbar-width:thin; }
     .tab { min-height:40px; padding:0 16px; color:var(--muted); background:#111827; border:1px solid var(--line); border-radius:999px; cursor:pointer; white-space:nowrap; font-weight:800; }
     .tab.active { color:#071019; background:var(--cyan); border-color:var(--cyan); }
+    .controls { display:grid; grid-template-columns:minmax(220px,1fr) auto auto; gap:9px; }
     .control { min-height:44px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:0 13px; }
     input:focus,select:focus,button:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
-    button.control { cursor:pointer; }
     main { padding:22px 24px 80px; }
     #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--card)),1fr)); gap:14px; }
     .card { min-width:0; padding:0; overflow:hidden; text-align:left; color:inherit; background:linear-gradient(145deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:14px; cursor:pointer; box-shadow:0 10px 30px rgba(0,0,0,.18); transition:.16s transform,.16s border-color,.16s box-shadow; }
     .card:hover { transform:translateY(-3px); border-color:#527195; box-shadow:0 14px 35px rgba(0,0,0,.3); }
-    .thumb { width:100%; height:var(--thumb); display:block; object-fit:contain; object-position:center; padding:10px; background-color:#dfe5ec; background-image:linear-gradient(45deg,#b8c2cd 25%,transparent 25%),linear-gradient(-45deg,#b8c2cd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#b8c2cd 75%),linear-gradient(-45deg,transparent 75%,#b8c2cd 75%); background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0; image-rendering:pixelated; border-bottom:1px solid var(--line); }
+    .preview-shell,.full-shell,.stage { background-color:#dfe5ec; background-image:linear-gradient(45deg,#b8c2cd 25%,transparent 25%),linear-gradient(-45deg,#b8c2cd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#b8c2cd 75%),linear-gradient(-45deg,transparent 75%,#b8c2cd 75%); background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0; }
+    .preview-shell { height:var(--thumb); display:grid; place-items:center; padding:10px; border-bottom:1px solid var(--line); }
+    .thumb { width:100%; height:100%; display:block; image-rendering:pixelated; }
     .body { padding:12px 13px 14px; }
     .row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .code { color:var(--yellow); font-size:1.02rem; font-weight:900; letter-spacing:.035em; }
+    .code { min-width:0; color:var(--yellow); font-size:1.02rem; font-weight:900; letter-spacing:.025em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .badge { flex:0 0 auto; padding:4px 7px; border-radius:999px; color:#c2d3ea; background:#202b40; font-size:.75rem; }
     .name { height:2.8em; margin-top:8px; line-height:1.4; overflow:hidden; font-size:.9rem; overflow-wrap:anywhere; }
-    .resource { margin-top:8px; color:var(--muted); font: .76rem/1.3 ui-monospace,Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .resource { margin-top:8px; color:var(--muted); font:.76rem/1.3 ui-monospace,Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .unlinked { border-color:#5b4535; }
     .unlinked .name { color:#deb583; }
     .empty { grid-column:1/-1; padding:16vh 20px; text-align:center; color:var(--muted); }
+    #composer { display:none; grid-template-columns:minmax(300px,420px) minmax(210px,260px) minmax(300px,1fr); align-items:start; gap:16px; max-width:1280px; margin:0 auto; }
+    .stage-panel,.pick-panel { background:linear-gradient(145deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:16px; padding:18px; }
+    .stage { width:min(100%,520px); aspect-ratio:1; margin:auto; overflow:hidden; border:1px solid #526580; border-radius:12px; background-size:24px 24px; background-position:0 0,0 12px,12px -12px,-12px 0; }
+    #stage-canvas { width:100%; height:100%; display:block; image-rendering:pixelated; }
+    .picker { margin-bottom:15px; }
+    .picker label { display:block; margin-bottom:6px; color:var(--yellow); font-weight:800; }
+    .picker select { width:100%; min-height:45px; color:var(--text); background:#0f1624; border:1px solid var(--line); border-radius:10px; padding:0 10px; }
+    .picker select:disabled { color:#738096; cursor:not-allowed; }
+    .picker-section + .picker-section { margin-top:20px; padding-top:18px; border-top:1px solid var(--line); }
+    .picker-section h2 { margin:0 0 14px; color:var(--cyan); font-size:1rem; }
+    .costume-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:12px; }
+    .color-choice { display:grid; grid-template-columns:minmax(0,1fr) 45px; gap:8px; }
+    .color-swatch { border:1px solid #526580; border-radius:10px; box-shadow:inset 0 0 0 4px rgba(255,255,255,.1); }
+    .render-button,.primary { width:100%; min-height:48px; color:#061017; background:var(--cyan); border:0; border-radius:11px; cursor:pointer; font-weight:900; }
     dialog { width:min(1180px,94vw); max-height:92vh; padding:0; color:var(--text); background:#0d1320; border:1px solid #435472; border-radius:16px; box-shadow:0 30px 90px #000; }
     dialog::backdrop { background:rgba(0,0,0,.76); backdrop-filter:blur(5px); }
     .modal-head { position:sticky; top:0; z-index:2; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 16px; background:rgba(13,19,32,.96); border-bottom:1px solid var(--line); }
@@ -47,86 +66,66 @@
     .try-button { min-height:42px; padding:0 16px; color:#061017; background:var(--cyan); border:0; border-radius:11px; cursor:pointer; font-weight:900; }
     .close { width:42px; height:42px; flex:0 0 auto; color:white; background:#202b40; border:1px solid #3a4963; border-radius:11px; cursor:pointer; font-size:1.35rem; }
     .modal-content { padding:18px; overflow:auto; }
-    .full { width:100%; height:min(62vh,620px); display:block; object-fit:contain; padding:16px; background-color:#dfe5ec; background-image:linear-gradient(45deg,#b8c2cd 25%,transparent 25%),linear-gradient(-45deg,#b8c2cd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#b8c2cd 75%),linear-gradient(-45deg,transparent 75%,#b8c2cd 75%); background-size:20px 20px; background-position:0 0,0 10px,10px -10px,-10px 0; border-radius:10px; image-rendering:pixelated; }
+    .full-shell { width:100%; height:min(62vh,620px); display:grid; place-items:center; padding:16px; border-radius:10px; background-size:20px 20px; background-position:0 0,0 10px,10px -10px,-10px 0; }
+    #modal-canvas { width:100%; height:100%; display:block; image-rendering:pixelated; }
     .details { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:14px; }
     .detail { min-width:0; padding:12px; background:#151d2c; border:1px solid var(--line); border-radius:10px; }
     .detail small { display:block; color:var(--muted); margin-bottom:5px; }
     .detail div { overflow-wrap:anywhere; }
-    #composer { display:none; grid-template-columns:minmax(300px,420px) minmax(210px,260px) minmax(300px,1fr); align-items:start; gap:16px; max-width:1280px; margin:0 auto; }
-    .stage-panel,.pick-panel { background:linear-gradient(145deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:16px; padding:18px; }
-    .stage { position:relative; width:min(100%,520px); aspect-ratio:1; margin:auto; overflow:hidden; border:1px solid #526580; border-radius:12px; background-color:#dfe5ec; background-image:linear-gradient(45deg,#b8c2cd 25%,transparent 25%),linear-gradient(-45deg,#b8c2cd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#b8c2cd 75%),linear-gradient(-45deg,transparent 75%,#b8c2cd 75%); background-size:24px 24px; background-position:0 0,0 12px,12px -12px,-12px 0; }
-    .layer { position:absolute; left:0; top:0; width:100%; height:100%; object-fit:fill; image-rendering:pixelated; pointer-events:none; }
-    .picker { margin-bottom:15px; }
-    .picker label { display:block; margin-bottom:6px; color:var(--yellow); font-weight:800; }
-    .picker select { width:100%; min-height:45px; color:var(--text); background:#0f1624; border:1px solid var(--line); border-radius:10px; padding:0 10px; }
-    .color-choice { display:grid; grid-template-columns:minmax(0,1fr) 45px; gap:8px; }
-    .color-swatch { border:1px solid #526580; border-radius:10px; box-shadow:inset 0 0 0 4px rgba(255,255,255,.1); }
-    .render-button { width:100%; min-height:48px; color:#061017; background:var(--cyan); border:0; border-radius:11px; cursor:pointer; font-weight:900; }
+    .resource-gate { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:20px; background:rgba(5,8,14,.94); backdrop-filter:blur(16px); }
+    .resource-gate.ready { display:none; }
+    .gate-card { width:min(620px,100%); padding:28px; background:linear-gradient(145deg,#172136,#0e1422); border:1px solid #3c506e; border-radius:20px; box-shadow:0 30px 100px #000; }
+    .gate-card h2 { margin:0 0 10px; font-size:1.45rem; }
+    .gate-card p { color:#b8c6da; line-height:1.65; }
+    .gate-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px; }
+    .secondary { min-height:48px; background:#202b40; border:1px solid #435472; border-radius:11px; cursor:pointer; font-weight:800; }
+    .gate-status { min-height:1.5em; margin-top:14px; color:var(--muted); font-size:.9rem; }
+    .gate-status.error { color:#ff9e9e; }
+    .gate-status.ok { color:#83efab; }
+    .privacy { padding:10px 12px; color:#91a5c0; background:#0b111d; border-radius:10px; font-size:.82rem; }
     @media (max-width:980px) { #composer { grid-template-columns:minmax(280px,420px) minmax(260px,1fr); max-width:900px; } .stage-panel { grid-row:1 / span 2; } .character-panel,.item-panel { grid-column:2; } }
-    @media (max-width:760px) { header,main { padding-left:14px; padding-right:14px; } .top { align-items:start; flex-direction:column; gap:4px; } .controls { grid-template-columns:1fr 1fr; } .controls input { grid-column:1/-1; } .details { grid-template-columns:1fr 1fr; } .thumb { height:min(var(--thumb),70vw); } #composer { grid-template-columns:1fr; } .stage-panel,.character-panel,.item-panel { grid-column:auto; grid-row:auto; } }
+    @media (max-width:760px) { header,main { padding-left:14px; padding-right:14px; } .top { align-items:start; flex-direction:column; gap:4px; } .controls { grid-template-columns:1fr 1fr; } .controls input { grid-column:1/-1; } .details { grid-template-columns:1fr 1fr; } .preview-shell { height:min(var(--thumb),70vw); } #composer { grid-template-columns:1fr; } .stage-panel,.character-panel,.item-panel { grid-column:auto; grid-row:auto; } .costume-grid { grid-template-columns:1fr; } .gate-actions { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
+  <aside class="resource-gate" id="resource-gate" aria-modal="true" role="dialog">
+    <div class="gate-card">
+      <h2>게임 리소스 연결</h2>
+      <p>PopTag 설치 폴더 또는 아래 IDD 파일 3개를 선택하세요. 브라우저 보안상 경로 문자열만으로는 파일을 읽을 수 없어 최초 한 번의 선택이 필요합니다.</p>
+      <div class="privacy">필요 파일: <b>fx.idd</b>, <b>EmoTE.idd</b>, <b>CharTE.idd</b><br>파일은 업로드되지 않으며 이 기기 안에서 필요한 구간만 읽습니다.</div>
+      <div class="gate-actions">
+        <button class="primary" id="choose-folder" type="button">PopTag 폴더 선택</button>
+        <button class="secondary" id="choose-files" type="button">IDD 파일 3개 선택</button>
+      </div>
+      <input id="idd-files" type="file" accept=".idd" multiple hidden>
+      <div class="gate-status" id="gate-status" aria-live="polite"></div>
+    </div>
+  </aside>
   <header>
-    <div class="top"><div><h1>Poptag-Viewer</h1></div><div class="count" id="count"></div></div>
+    <div class="top"><h1>Poptag-Viewer</h1><div class="count" id="count"></div></div>
     <nav class="tabs" aria-label="종류 선택" id="tabs"></nav>
-    <div class="controls">
-      <input class="control" id="search" type="search" placeholder="배경 번호, 이름, 리소스 검색" autocomplete="off">
+    <div class="controls" id="controls">
+      <input class="control" id="search" type="search" placeholder="번호, 이름, 리소스 검색" autocomplete="off">
       <select class="control" id="sort" aria-label="정렬"><option value="code">번호순</option><option value="frames">프레임 많은 순</option><option value="name">이름순</option></select>
-      <select class="control" id="size" aria-label="카드 크기"><option value="190">작게</option><option value="270" selected>보통</option><option value="460">크게</option></select>
+      <select class="control" id="size" aria-label="카드 크기"><option value="170">작게</option><option value="270" selected>보통</option><option value="520">크게</option></select>
     </div>
   </header>
-  <main><section id="grid" aria-live="polite"></section><section id="composer"><div class="stage-panel"><div class="stage" id="stage"></div></div><div class="pick-panel character-panel" id="character-pickers"></div><div class="pick-panel item-panel" id="pickers"></div></section></main>
+  <main>
+    <section id="grid" aria-live="polite"></section>
+    <section id="composer">
+      <div class="stage-panel"><div class="stage"><canvas id="stage-canvas" width="148" height="148"></canvas></div></div>
+      <div class="pick-panel character-panel" id="character-pickers"></div>
+      <div class="pick-panel item-panel"><div class="picker-section"><h2>캐릭터 코스튬</h2><div class="costume-grid" id="costume-pickers"></div></div><div class="picker-section"><h2>슬롯 꾸미기</h2><div id="pickers"></div></div></div>
+    </section>
+  </main>
   <dialog id="viewer">
     <div class="modal-head"><div class="modal-title"><strong id="vcode"></strong><span id="vname"></span></div><div class="modal-actions"><button class="try-button" id="try-item" type="button">입혀보기</button><button class="close" id="close" type="button" aria-label="닫기">×</button></div></div>
-    <div class="modal-content"><img class="full" id="vimg" alt=""><div class="details" id="details"></div></div>
+    <div class="modal-content"><div class="full-shell"><canvas id="modal-canvas" width="148" height="148"></canvas></div><div class="details" id="details"></div></div>
   </dialog>
   <script src="catalog-data.js"></script>
   <script src="characters-data.js"></script>
-  <script>
-    const $=s=>document.querySelector(s), grid=$('#grid'), search=$('#search'), sort=$('#sort'), viewer=$('#viewer');
-    const categoryLabels={background:'배경',flag:'깃발',prop:'소품',effect:'효과'}; const composerLabels={background:'배경',character:'캐릭터',flag:'깃발',prop:'소품',effect:'효과'}; const itemLayers=['background','flag','prop','effect'],layers=['background','flag','character','prop','effect']; const characterColors=[['red','빨강','#fe0000'],['yellow','노랑','#ffca10'],['orange','주황','#ff9800'],['green','초록','#7dc709'],['cyan','청록','#00c6cd'],['blue','파랑','#006fee'],['purple','보라','#791fe6'],['pink','분홍','#bf005f']]; const SLOT_SIZE=148,LAYER_SIZE=148,DEFAULT_FRAME_DURATION=120,MAX_GIF_DURATION=12000; let category='background';
-    const esc=s=>String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
-    const label=r=>r.item_names.length?r.item_names.join(' / '):'이름 없음 · 리소스만 있음';
-    const assetPath=(r,file)=>`assets/${r.category}/${file}`;
-    const preview=r=>assetPath(r,r.preview_file||r.strip_file);
-    const prefix=r=>({background:'BG',flag:'FLAG',prop:'PROP',effect:'FX'}[r.category]);
-    const rowsForLayer=cat=>cat==='character'?CHARACTERS:CATALOG.filter(r=>r.category===cat);
-    const rowForLayer=(cat,code)=>String(code)===''?null:rowsForLayer(cat).find(r=>r.code===Number(code));
-    // Webpage.exe builds the unequipped flag from the unlinked level-sign base
-    // and the novice-level badge; neither shop flag 0001 nor 0012 is the default.
-    const DEFAULT_FLAG={category:'flag',code:0,resource:'Prepare/PRE_Img[10]',frame_count:1,frame_dimensions:['100x100'],item_ids:[],item_names:['기본 깃발'],item_resource_kinds:[],item_table_linked:false,layer_file:'DefaultFlag.webp',sprite_file:'DefaultFlag.webp',preview_file:'DefaultFlag.webp'};
-    const getLayerCode = cat => {
-      const select = $(`#pick-${cat}`);
-      return !select || !select.value ? '' : Number(select.value);
-    };
-    const resolveLayerRow = cat => {
-      const select = $(`#pick-${cat}`);
-      if (cat === 'flag' && select && !select.value) return DEFAULT_FLAG;
-      return rowForLayer(cat, getLayerCode(cat));
-    };
-    const characterColor=()=>$('#pick-character-color')?.value||'red';
-    const assetFor=(row,key)=>row.category==='character'?(row.color_files?.[characterColor()]?.[key]||row[key]):row[key];
-    function filtered(){ const q=search.value.trim().toLocaleLowerCase(); let a=CATALOG.filter(r=>r.category===category&&(!q||[r.code,label(r),r.resource,...r.item_ids].join(' ').toLocaleLowerCase().includes(q))); if(sort.value==='frames')a.sort((x,y)=>y.frame_count-x.frame_count||x.code-y.code); else if(sort.value==='name')a.sort((x,y)=>label(x).localeCompare(label(y),'ko')); else a.sort((x,y)=>x.code-y.code); return a; }
-    function renderTabs(){ const tabs=Object.entries(categoryLabels).map(([key,name])=>{const n=CATALOG.filter(r=>r.category===key).length;return `<button class="tab ${key===category?'active':''}" data-category="${key}">${name} <span>${n.toLocaleString()}</span></button>`}); tabs.push(`<button class="tab ${category==='tryon'?'active':''}" data-category="tryon">입혀보기</button>`); $('#tabs').innerHTML=tabs.join(''); }
-    function render(){ const rows=filtered(), total=CATALOG.filter(r=>r.category===category).length; $('#count').textContent=`${rows.length.toLocaleString()} / ${total.toLocaleString()}개`; grid.innerHTML=rows.length?rows.map(r=>`<button class="card ${r.item_table_linked?'':'unlinked'}" data-code="${r.code}" data-category="${r.category}"><img class="thumb" loading="lazy" src="${preview(r)}" alt="${categoryLabels[r.category]} ${String(r.code).padStart(4,'0')} 미리보기"><div class="body"><div class="row"><span class="code">${prefix(r)} ${String(r.code).padStart(4,'0')}</span><span class="badge">${r.frame_count>1?'GIF · ':''}${r.frame_count} 프레임</span></div><div class="name">${esc(label(r))}</div><div class="resource">${esc(r.resource)}</div></div></button>`).join(''):'<div class="empty">조건에 맞는 항목이 없습니다.</div>'; }
-    function openRow(cat,code){ const r=CATALOG.find(x=>x.category===cat&&x.code===code); if(!r)return; $('#vcode').textContent=`${prefix(r)} ${String(r.code).padStart(4,'0')} · ${r.frame_count} 프레임`; $('#vname').textContent=label(r); $('#vimg').src=preview(r); $('#vimg').alt=`${categoryLabels[r.category]} ${r.code} ${r.frame_count>1?'움직이는 GIF':'미리보기'}`; const tryButton=$('#try-item');tryButton.dataset.category=r.category;tryButton.dataset.code=r.code;const cells=[['종류',categoryLabels[r.category]],['리소스',r.resource],['크기',r.frame_dimensions.join(', ')],['표시 형식',r.frame_count>1?'움직이는 GIF':'정지 이미지'],['아이템 ID',r.item_ids.length?r.item_ids.join(', '):'없음']]; $('#details').innerHTML=cells.map(([k,v])=>`<div class="detail"><small>${k}</small><div>${esc(v)}</div></div>`).join(''); viewer.showModal(); }
-    function tryCurrentItem(){ const button=$('#try-item'),cat=button.dataset.category,code=button.dataset.code,select=$(`#pick-${cat}`);if(!select||!code)return;select.value=code;select.dispatchEvent(new Event('change',{bubbles:true}));category='tryon';renderTabs();showCurrent();viewer.close();window.scrollTo({top:0,behavior:'smooth'});requestAnimationFrame(()=>select.focus({preventScroll:true})); }
-    function setupComposer(){ const characterPickers=$('#character-pickers'),pickers=$('#pickers'),stage=$('#stage'); characterPickers.innerHTML=`<div class="picker"><label for="pick-character">캐릭터</label><select id="pick-character" data-layer="character"><option value="">착용 안 함</option>${CHARACTERS.map(r=>`<option value="${r.code}">${String(r.code).padStart(2,'0')} · ${esc(label(r))}</option>`).join('')}</select></div><div class="picker"><label for="pick-character-color">캐릭터 렌더색</label><div class="color-choice"><select id="pick-character-color">${characterColors.map(([value,name])=>`<option value="${value}" ${value==='red'?'selected':''}>${name}</option>`).join('')}</select><span class="color-swatch" id="character-color-swatch" aria-hidden="true"></span></div></div>`; pickers.innerHTML=itemLayers.map(cat=>{const emptyLabel=cat==='flag'?'기본 깃발':'착용 안 함';return `<div class="picker"><label for="pick-${cat}">${composerLabels[cat]}</label><select id="pick-${cat}" data-layer="${cat}"><option value="">${emptyLabel}</option>${rowsForLayer(cat).map(r=>`<option value="${r.code}">${String(r.code).padStart(4,'0')} · ${esc(label(r))}</option>`).join('')}</select></div>`}).join('')+'<button class="render-button" id="render">GIF</button>'; stage.innerHTML=layers.map(cat=>`<img class="layer" id="layer-${cat}" alt="">`).join(''); const updateLayer=cat=>{const img=$(`#layer-${cat}`),r=resolveLayerRow(cat);if(r)img.src=assetPath(r,assetFor(r,'layer_file'));else img.src='';img.style.display=r?'block':'none';}; const handleLayerChange=e=>{const select=e.target.closest('select[data-layer]');if(select)updateLayer(select.dataset.layer);}; characterPickers.addEventListener('change',e=>{handleLayerChange(e);if(e.target.id==='pick-character-color'){const color=characterColors.find(([value])=>value===characterColor());$('#character-color-swatch').style.background=color[2];updateLayer('character');}}); pickers.addEventListener('change',handleLayerChange); $('#character-color-swatch').style.background=characterColors[0][2]; for(const cat of itemLayers) updateLayer(cat); $('#render').onclick=renderComposition; }
-    function palette(){ const p=new Uint8Array(768); for(let i=1;i<253;i++){let n=i-1,r=Math.floor(n/42),q=n%42,g=Math.floor(q/6),b=q%6;p[i*3]=r*51;p[i*3+1]=Math.round(g*255/6);p[i*3+2]=b*51;} return p; }
-    function indexed(image){ const src=image.data,out=new Uint8Array(image.width*image.height);for(let i=0,j=0;i<src.length;i+=4,j++){if(src[i+3]<64){out[j]=0;continue;}const r=Math.round(src[i]/51),g=Math.round(src[i+1]*6/255),b=Math.round(src[i+2]/51);out[j]=1+r*42+g*6+b;}return out; }
-    function lzw(data){ const clear=256,end=257,bytes=[];let cur=0,bits=0,next=258,dict=new Map();const put=code=>{cur|=code<<bits;bits+=9;while(bits>=8){bytes.push(cur&255);cur>>>=8;bits-=8;}};const reset=()=>{dict=new Map();next=258;};put(clear);let prefix=data[0];for(let i=1;i<data.length;i++){const k=data[i],key=prefix+','+k;if(dict.has(key)){prefix=dict.get(key);}else{put(prefix);if(next<500)dict.set(key,next++);else{put(clear);reset();}prefix=k;}}put(prefix);put(end);if(bits)bytes.push(cur&255);return bytes; }
-    function word(a,n){a.push(n&255,(n>>8)&255);} function blocks(a,b){for(let i=0;i<b.length;i+=255){const n=Math.min(255,b.length-i);a.push(n,...b.slice(i,i+n));}a.push(0);}
-    function makeGif(frames,durations,w,h){const a=[71,73,70,56,57,97];word(a,w);word(a,h);a.push(247,0,0,...palette(),33,255,11,...[...'NETSCAPE2.0'].map(c=>c.charCodeAt(0)),3,1,0,0,0);frames.forEach((f,index)=>{a.push(33,249,4,9);word(a,Math.max(2,Math.round(durations[index]/10)));a.push(0,0,44);word(a,0);word(a,0);word(a,w);word(a,h);a.push(0,8);blocks(a,lzw(indexed(f)));});a.push(59);return new Blob([new Uint8Array(a)],{type:'image/gif'});}
-    function loadImage(src){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error(`이미지를 불러오지 못했습니다: ${src}`));img.src=src;});}
-    function gcd(a,b){while(b)[a,b]=[b,a%b];return a;}
-    function frameDurations(row){return row.frame_durations?.length===row.frame_count?row.frame_durations:Array(row.frame_count).fill(DEFAULT_FRAME_DURATION);}
-    function makeTimeline(sources){for(const source of sources){source.durations=frameDurations(source.row);source.period=source.durations.reduce((sum,value)=>sum+value,0);}let total=1;for(const source of sources){const next=total*source.period/gcd(total,source.period);total=next>MAX_GIF_DURATION?MAX_GIF_DURATION:next;if(total===MAX_GIF_DURATION)break;}const points=new Set([0,total]);for(const source of sources){let at=0,index=0;while(at<total){points.add(at);at+=source.durations[index%source.durations.length];index++;}}const times=[...points].filter(value=>value<=total).sort((a,b)=>a-b);return times.slice(0,-1).map((start,index)=>({start,duration:times[index+1]-start}));}
-    function frameAt(source,time){let local=time%source.period;for(let index=0;index<source.durations.length;index++){if(local<source.durations[index])return index;local-=source.durations[index];}return 0;}
-    async function renderComposition(){ const button=$('#render');button.disabled=true;button.textContent='GIF 만드는 중…';try{const selected=layers.map(cat=>resolveLayerRow(cat)).filter(Boolean);if(!selected.length){alert('먼저 하나 이상의 항목을 선택해 주세요.');return;}const sources=await Promise.all(selected.map(async row=>({row,img:await loadImage(assetPath(row,assetFor(row,'sprite_file')||assetFor(row,'layer_file')))}))),timeline=makeTimeline(sources),canvas=document.createElement('canvas');canvas.width=SLOT_SIZE;canvas.height=SLOT_SIZE;const ctx=canvas.getContext('2d',{willReadFrequently:true}),frames=[],durations=[];for(const segment of timeline){ctx.clearRect(0,0,SLOT_SIZE,SLOT_SIZE);for(const source of sources){const frame=frameAt(source,segment.start);ctx.drawImage(source.img,frame*LAYER_SIZE,0,LAYER_SIZE,LAYER_SIZE,0,0,LAYER_SIZE,LAYER_SIZE);}frames.push(ctx.getImageData(0,0,SLOT_SIZE,SLOT_SIZE));durations.push(segment.duration);}const url=URL.createObjectURL(makeGif(frames,durations,SLOT_SIZE,SLOT_SIZE)),a=document.createElement('a');a.download=`poptag-착용-${frames.length}프레임-${Date.now()}.gif`;a.href=url;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);button.textContent=`${frames.length}프레임 GIF 저장 완료`;}catch(error){alert(`GIF 저장에 실패했습니다. ${error.message}`);}finally{setTimeout(()=>{button.disabled=false;button.textContent='GIF';},900);}}
-    function showCurrent(){ const composing=category==='tryon'; $('.controls').style.display=composing?'none':'grid'; grid.style.display=composing?'none':'grid'; $('#composer').style.display=composing?'grid':'none'; if(!composing)render(); }
-    [search,sort].forEach(el=>el.addEventListener('input',render)); $('#size').addEventListener('input',e=>{const card=Number(e.target.value),thumb={190:125,270:180,460:310}[card];document.documentElement.style.setProperty('--card',`${card}px`);document.documentElement.style.setProperty('--thumb',`${thumb}px`);}); $('#tabs').addEventListener('click',e=>{const t=e.target.closest('.tab');if(!t)return;category=t.dataset.category;renderTabs();showCurrent();}); grid.addEventListener('click',e=>{const c=e.target.closest('.card');if(c)openRow(c.dataset.category,Number(c.dataset.code));}); $('#try-item').onclick=tryCurrentItem; $('#close').onclick=()=>viewer.close(); viewer.addEventListener('click',e=>{if(e.target===viewer)viewer.close();});
-    setupComposer(); renderTabs(); showCurrent();
-  </script>
+  <script src="costumes-data.js"></script>
+  <script src="resource-data.js"></script>
+  <script src="viewer.js"></script>
 </body>
 </html>
