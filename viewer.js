@@ -14,13 +14,16 @@
   const baseCategories = Object.keys(baseLabels);
   const costumeCategories = Object.keys(costumeLabels);
   const costumeInheritance = new Map([[10,4],[11,7],[12,6],[14,0],[15,8],[17,2],[18,1],[25,9],[27,19],[28,26],[29,16]]);
+  // Webpage.exe applies these hue/lightness/saturation adjustments while it
+  // decodes every LayerAdjust resource. The three tables live at 0x987250,
+  // 0x987298 and 0x9872E0 and are consumed by the HSL routine at 0x787FB0.
   const characterColors = [
-    ["red", "빨강", "#fe0000", [254, 0, 0]], ["yellow", "노랑", "#ffca10", [255, 202, 16]],
-    ["orange", "주황", "#ff9800", [255, 152, 0]], ["green", "초록", "#7dc709", [125, 199, 9]],
-    ["cyan", "청록", "#00c6cd", [0, 198, 205]], ["blue", "파랑", "#006fee", [0, 111, 238]],
-    ["purple", "보라", "#791fe6", [121, 31, 230]], ["pink", "분홍", "#bf005f", [191, 0, 95]],
+    ["red", "빨강", [0, 0, 0]], ["yellow", "노랑", [45, 5, 0]],
+    ["orange", "주황", [27, 5, 20]], ["green", "초록", [128, 0, -50]],
+    ["cyan", "청록", [-178, 0, -30]], ["blue", "파랑", [-155, 0, 0]],
+    ["purple", "보라", [-77, 0, 0]], ["pink", "분홍", [-40, 0, 0]],
   ];
-  const colorRgb = Object.fromEntries(characterColors.map(([key, _name, _hex, rgb]) => [key, rgb]));
+  const characterColorAdjustments = new Map(characterColors.map(([key, _name, adjustment]) => [key, adjustment]));
   const catalogByCategory = new Map(baseCategories.map(category => [category, CATALOG.filter(row => row.category === category)]));
   const costumesByCategory = new Map(costumeCategories.map(category => [category, COSTUMES.filter(row => row.category === category)]));
   const costumeByKey = new Map(COSTUMES.map(row => [row.key, row]));
@@ -38,7 +41,6 @@
   let modalAnimation = null;
   let composerAnimation = null;
   let lastAnimationTick = 0;
-  let inGameColorMaps = new Map();
 
   const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;"}[character]));
   const rowLabel = row => row.item_names?.length ? row.item_names.join(" / ") : "이름 없음 · 리소스만 있음";
@@ -310,7 +312,6 @@
     gateStatus("IDD 파일을 확인하는 중…");
     try {
       resourceStore = new ResourceStore(await validateFiles(files));
-      await prepareInGameColorMaps();
       if (handle) await saveDirectoryHandle(handle);
       gateStatus("연결되었습니다.", "ok");
       $("#resource-gate").classList.add("ready");
@@ -320,56 +321,62 @@
     }
   }
 
-  const packRgb = (red, green, blue) => (red << 16) | (green << 8) | blue;
-  const unpackRgb = value => [value >>> 16, (value >>> 8) & 255, value & 255];
+  const clampUnit = value => Math.max(0, Math.min(1, value));
 
-  async function prepareInGameColorMaps() {
-    const decoded = await Promise.all(characterColors.map((_, index) => resourceStore.get("fx", `Prepare/PRE_SelTeam-Basic${String(index).padStart(2, "0")}`)));
-    const source = decoded[0];
-    inGameColorMaps = new Map();
-    for (let colorIndex = 1; colorIndex < decoded.length; colorIndex++) {
-      const votes = new Map(), target = decoded[colorIndex];
-      const frameCount = Math.min(source.frames.length, target.frames.length);
-      for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
-        const sourceCanvas = source.frames[frameIndex].canvas, targetCanvas = target.frames[frameIndex].canvas;
-        if (sourceCanvas.width !== targetCanvas.width || sourceCanvas.height !== targetCanvas.height) continue;
-        const sourcePixels = sourceCanvas.getContext("2d", {willReadFrequently:true}).getImageData(0, 0, sourceCanvas.width, sourceCanvas.height).data;
-        const targetPixels = targetCanvas.getContext("2d", {willReadFrequently:true}).getImageData(0, 0, targetCanvas.width, targetCanvas.height).data;
-        for (let pixel = 0; pixel < sourcePixels.length; pixel += 4) {
-          if (!sourcePixels[pixel + 3] || !targetPixels[pixel + 3]) continue;
-          const red = sourcePixels[pixel], green = sourcePixels[pixel + 1], blue = sourcePixels[pixel + 2];
-          if (red <= green || red <= blue) continue;
-          const sourceColor = packRgb(red, green, blue);
-          const targetColor = packRgb(targetPixels[pixel], targetPixels[pixel + 1], targetPixels[pixel + 2]);
-          if (!votes.has(sourceColor)) votes.set(sourceColor, new Map());
-          const choices = votes.get(sourceColor);
-          choices.set(targetColor, (choices.get(targetColor) || 0) + 1);
-        }
-      }
-      const exact = new Map(), samples = [];
-      for (const [sourceColor, choices] of votes) {
-        const targetColor = [...choices].sort((left, right) => right[1] - left[1])[0][0];
-        exact.set(sourceColor, targetColor);
-        samples.push([...unpackRgb(sourceColor), targetColor]);
-      }
-      inGameColorMaps.set(characterColors[colorIndex][0], {exact, samples, nearest:new Map()});
-    }
+  function rgbToHsl(red, green, blue) {
+    const r = red / 255, g = green / 255, b = blue / 255;
+    const maximum = Math.max(r, g, b), minimum = Math.min(r, g, b);
+    const lightness = (maximum + minimum) / 2;
+    if (maximum === minimum) return [0, 0, lightness];
+    const difference = maximum - minimum;
+    const saturation = lightness > 0.5 ? difference / (2 - maximum - minimum) : difference / (maximum + minimum);
+    let hue;
+    if (maximum === r) hue = (g - b) / difference + (g < b ? 6 : 0);
+    else if (maximum === g) hue = (b - r) / difference + 2;
+    else hue = (r - g) / difference + 4;
+    return [hue * 60, saturation, lightness];
   }
 
-  function inGameMappedColor(colorKey, red, green, blue) {
-    const mapping = inGameColorMaps.get(colorKey);
-    if (!mapping) return null;
-    const sourceColor = packRgb(red, green, blue);
-    if (mapping.exact.has(sourceColor)) return unpackRgb(mapping.exact.get(sourceColor));
-    if (mapping.nearest.has(sourceColor)) return unpackRgb(mapping.nearest.get(sourceColor));
-    let best = null, bestDistance = Infinity;
-    for (const [sampleRed, sampleGreen, sampleBlue, targetColor] of mapping.samples) {
-      const distance = (sampleRed - red) ** 2 + (sampleGreen - green) ** 2 + (sampleBlue - blue) ** 2;
-      if (distance < bestDistance) { best = targetColor; bestDistance = distance; }
+  function hueChannel(lower, upper, hue) {
+    let wrapped = hue;
+    while (wrapped < 0) wrapped += 1;
+    while (wrapped > 1) wrapped -= 1;
+    if (wrapped < 1 / 6) return lower + (upper - lower) * 6 * wrapped;
+    if (wrapped < 1 / 2) return upper;
+    if (wrapped < 2 / 3) return lower + (upper - lower) * (2 / 3 - wrapped) * 6;
+    return lower;
+  }
+
+  function hslToRgb(hue, saturation, lightness) {
+    if (!saturation) {
+      const channel = Math.trunc(lightness * 255);
+      return [channel, channel, channel];
     }
-    if (best == null) return null;
-    mapping.nearest.set(sourceColor, best);
-    return unpackRgb(best);
+    const upper = lightness < 0.5 ? lightness * (1 + saturation) : lightness + saturation - lightness * saturation;
+    const lower = 2 * lightness - upper, normalizedHue = hue / 360;
+    return [
+      Math.trunc(clampUnit(hueChannel(lower, upper, normalizedHue + 1 / 3)) * 255),
+      Math.trunc(clampUnit(hueChannel(lower, upper, normalizedHue)) * 255),
+      Math.trunc(clampUnit(hueChannel(lower, upper, normalizedHue - 1 / 3)) * 255),
+    ];
+  }
+
+  function relativeAdjustment(value, percentage) {
+    return clampUnit(value + (percentage >= 0 ? (1 - value) * percentage / 100 : value * percentage / 100));
+  }
+
+  function clientAdjustedColor(red, green, blue, colorKey) {
+    const [hueDelta, lightnessDelta, saturationDelta] = characterColorAdjustments.get(colorKey) || [0, 0, 0];
+    let [hue, saturation, lightness] = rgbToHsl(red, green, blue);
+    hue = (hue + hueDelta) % 360;
+    if (hue < 0) hue += 360;
+    saturation = relativeAdjustment(saturation, saturationDelta);
+    lightness = relativeAdjustment(lightness, lightnessDelta);
+    return hslToRgb(hue, saturation, lightness);
+  }
+
+  function colorSwatch(colorKey) {
+    return `rgb(${clientAdjustedColor(254, 0, 0, colorKey).join(", ")})`;
   }
 
   function toCanvas(source, colorKey) {
@@ -381,11 +388,7 @@
     const image = context.getImageData(0, 0, canvas.width, canvas.height), data = image.data;
     for (let index = 0; index < data.length; index += 4) {
       if (!data[index + 3]) continue;
-      const sourceRed = data[index], sourceGreen = data[index + 1], sourceBlue = data[index + 2];
-      if (sourceRed <= sourceGreen || sourceRed <= sourceBlue) continue;
-      const mapped = inGameMappedColor(colorKey, sourceRed, sourceGreen, sourceBlue);
-      if (!mapped) continue;
-      [data[index], data[index + 1], data[index + 2]] = mapped;
+      [data[index], data[index + 1], data[index + 2]] = clientAdjustedColor(data[index], data[index + 1], data[index + 2], colorKey);
     }
     context.putImageData(image, 0, 0); source._tints.set(colorKey, canvas); return canvas;
   }
@@ -428,41 +431,22 @@
     }
   }
 
-  function frameAlphaBounds(frame) {
-    if (!frame || !frame.canvas) return null;
-    if (Object.prototype.hasOwnProperty.call(frame, "_alphaBounds")) return frame._alphaBounds;
-    const {width, height} = frame.canvas;
-    const pixels = frame.canvas.getContext("2d", {willReadFrequently:true}).getImageData(0, 0, width, height).data;
-    let left = width, top = height, right = -1, bottom = -1;
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (!pixels[(y * width + x) * 4 + 3]) continue;
-        left = Math.min(left, x); top = Math.min(top, y);
-        right = Math.max(right, x); bottom = Math.max(bottom, y);
-      }
-    }
-    frame._alphaBounds = right < left ? null : {left, top, right:right + 1, bottom:bottom + 1};
-    return frame._alphaBounds;
-  }
-
   function characterPartOffset(characterParts, sourceIndex, preferredVariant) {
     const candidates = characterParts.filter(part => part.variant === preferredVariant).sort((left, right) => Number(left.adjust) - Number(right.adjust));
-    const tracker = candidates.find(part => frameAlphaBounds(part.decoded.frames[0]) && frameAlphaBounds(part.decoded.frames[sourceIndex % part.decoded.frames.length]));
+    const tracker = candidates.find(part => part.decoded.frames[0] && part.decoded.frames[sourceIndex % part.decoded.frames.length]);
     if (!tracker) return preferredVariant === "A" ? [0, 0] : characterPartOffset(characterParts, sourceIndex, "A");
     const baseFrame = tracker.decoded.frames[0], currentFrame = tracker.decoded.frames[sourceIndex % tracker.decoded.frames.length];
-    const base = frameAlphaBounds(baseFrame), current = frameAlphaBounds(currentFrame);
-    // Compare the visible layer bounds in slot coordinates. This accounts for
-    // both metadata-origin movement and pixels that move inside a shared canvas.
     return [
-      current.left - currentFrame.record.anchorX - (base.left - baseFrame.record.anchorX),
-      current.top - currentFrame.record.anchorY - (base.top - baseFrame.record.anchorY),
+      baseFrame.record.originX - currentFrame.record.originX,
+      baseFrame.record.originY - currentFrame.record.originY,
     ];
   }
 
   function costumePoseOffset(row, characterParts, sourceIndex) {
     if (row.pose_frame == null) return [0, 0];
-    // Expressions, wigs, hats and masks are all attached to the head. A is the
-    // client avatar's head/face motion track; B is reserved for torso pieces.
+    // AvatarDeco face pieces use the client's A (head/face) transform, body
+    // pieces use B, while hats deliberately remain on their own fixed track.
+    if (row.category === "head") return [0, 0];
     const trackingVariant = ["outfit", "accessory"].includes(row.category) ? "B" : "A";
     return characterPartOffset(characterParts, sourceIndex, trackingVariant);
   }
@@ -575,9 +559,7 @@
   function filteredRows() {
     const query = search.value.trim().toLocaleLowerCase();
     const selected = selectedCatalogCharacter(), compatibleSlots = compatibleCostumeSlots(selected);
-    const commonOnly = !characterFilter.hidden && characterFilter.value === "common";
     const rows = rowsForCategory(category)
-      .filter(row => !commonOnly || row.character_slot == null)
       .filter(row => !selected || row.character_slot == null || compatibleSlots.has(row.character_slot))
       .filter(row => !query || [row.code, rowLabel(row), rowResource(row), ...(row.item_ids || [])].join(" ").toLocaleLowerCase().includes(query));
     if (sort.value === "frames") rows.sort((left, right) => right.frame_count - left.frame_count || left.code - right.code);
@@ -598,9 +580,7 @@
   function renderGrid() {
     clearGridAnimations();
     const rows = filteredRows(), selected = selectedCatalogCharacter(), compatibleSlots = compatibleCostumeSlots(selected);
-    const commonOnly = !characterFilter.hidden && characterFilter.value === "common";
     const total = rowsForCategory(category)
-      .filter(row => !commonOnly || row.character_slot == null)
       .filter(row => !selected || row.character_slot == null || compatibleSlots.has(row.character_slot)).length;
     $("#count").textContent = `${rows.length.toLocaleString()} / ${total.toLocaleString()}개`;
     grid.innerHTML = rows.length ? rows.map(row => `<button class="card ${row.item_table_linked ? "" : "unlinked"}" data-key="${escapeHtml(row.key)}"><div class="preview-shell"><canvas class="thumb" width="148" height="148" aria-label="${escapeHtml(categoryLabels[row.category])} ${String(row.code).padStart(4, "0")} 미리보기"></canvas></div><div class="body"><div class="row"><span class="code">${escapeHtml(rowCode(row))}</span><span class="badge">${row.frame_count > 1 ? "GIF · " : ""}${row.frame_count} 프레임</span></div><div class="name">${escapeHtml(rowLabel(row))}</div><div class="resource">${escapeHtml(rowResource(row))}</div></div></button>`).join("") : `<div class="empty">조건에 맞는 항목이 없습니다.</div>`;
@@ -643,7 +623,7 @@
   function selectedCostume(key) { return costumeByKey.get($(`#pick-costume-${key}`)?.value) || null; }
   function selectedColor() { return $("#pick-character-color")?.value || "red"; }
   function selectedCatalogCharacter() {
-    return characterFilter.hidden || !characterFilter.value || characterFilter.value === "common" ? null : characterBySlot.get(Number(characterFilter.value)) || null;
+    return characterFilter.hidden || !characterFilter.value ? null : characterBySlot.get(Number(characterFilter.value)) || null;
   }
   function compatibleCostumeSlots(character) {
     if (!character) return new Set();
@@ -731,15 +711,15 @@
   }
 
   function setupComposer() {
-    characterFilter.innerHTML = `<option value="">전체 캐릭터</option><option value="common">공용</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
+    characterFilter.innerHTML = `<option value="">전체 캐릭터</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
     $("#character-pickers").innerHTML = `<div class="picker"><label for="pick-character">캐릭터</label><select id="pick-character"><option value="">착용 안 함</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div><div class="picker"><label for="pick-character-color">캐릭터 렌더색</label><div class="color-choice"><select id="pick-character-color">${characterColors.map(([value, name]) => `<option value="${value}" ${value === "red" ? "selected" : ""}>${name}</option>`).join("")}</select><span class="color-swatch" id="character-color-swatch" aria-hidden="true"></span></div></div>`;
     $("#costume-pickers").innerHTML = costumeCategories.map(key => `<div class="picker"><label for="pick-costume-${key}">${costumeLabels[key]}</label><select id="pick-costume-${key}" data-costume="${key}"></select></div>`).join("");
     $("#pickers").innerHTML = baseCategories.map(key => `<div class="picker"><label for="pick-${key}">${baseLabels[key]}</label><select id="pick-${key}" data-base="${key}"><option value="">${key === "background" ? "기본 배경" : key === "flag" ? "기본 깃발" : "착용 안 함"}</option>${(catalogByCategory.get(key) || []).map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div>`).join("") + `<button class="render-button" id="render" type="button">GIF</button>`;
-    $("#character-color-swatch").style.background = colorRgb.red ? "#fe0000" : "red";
+    $("#character-color-swatch").style.background = colorSwatch("red");
     refreshCostumePickers();
     $("#character-pickers").addEventListener("change", event => {
       if (event.target.id === "pick-character") refreshCostumePickers();
-      if (event.target.id === "pick-character-color") $("#character-color-swatch").style.background = characterColors.find(([key]) => key === selectedColor())[2];
+      if (event.target.id === "pick-character-color") $("#character-color-swatch").style.background = colorSwatch(selectedColor());
       rebuildComposer();
     });
     $("#costume-pickers").addEventListener("change", rebuildComposer);
