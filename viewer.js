@@ -977,9 +977,28 @@
     return row.raw_subtype === 6 || row.raw_subtype === 11;
   }
 
+  function occupiedCostumeCategories(row) {
+    const categories = Array.isArray(row?.occupied_categories) && row.occupied_categories.length
+      ? row.occupied_categories
+      : row?.category ? [row.category] : [];
+    return new Set(categories.filter(key => costumeCategories.includes(key)));
+  }
+
+  function outfitOccupies(costumeRows, key) {
+    return occupiedCostumeCategories(costumeRows?.outfit).has(key);
+  }
+
+  function effectiveCostumeRows(costumeRows) {
+    const occupied = occupiedCostumeCategories(costumeRows?.outfit);
+    return Object.fromEntries(costumeCategories.map(key => [
+      key,
+      key === "outfit" || !occupied.has(key) ? costumeRows?.[key] || null : null,
+    ]));
+  }
+
   function shouldShowDefaultHeadband(character, costumeRows) {
     const spec = defaultHeadbandSpec(character);
-    return Boolean(spec && !hidesDefaultHeadband(spec, costumeRows?.head) && !hidesDefaultHeadband(spec, costumeRows?.hair));
+    return Boolean(spec && !outfitOccupies(costumeRows, "head") && !hidesDefaultHeadband(spec, costumeRows?.head) && !hidesDefaultHeadband(spec, costumeRows?.hair));
   }
 
   async function prepareDefaultHeadband(character, costumeRows) {
@@ -1130,10 +1149,9 @@
     const selected = selectedCatalogCharacter();
     const selectedCanWear = selected && (row.character_slot == null || compatibleCostumeSlots(selected).has(row.character_slot));
     const character = selectedCanWear ? selected : characterBySlot.get(row.character_slot ?? DEFAULT_CHARACTER_SLOT) || CHARACTERS[0];
-    const previewCostumes = {
-      head:row.category === "head" ? row : null,
-      hair:row.category === "hair" ? row : null,
-    };
+    const previewCostumes = effectiveCostumeRows(Object.fromEntries(
+      costumeCategories.map(key => [key, row.category === key ? row : null]),
+    ));
     const [characterParts, costumeParts, defaultHeadband] = await Promise.all([
       prepareParts(character), prepareParts(row), prepareDefaultHeadband(character, previewCostumes),
     ]);
@@ -1141,13 +1159,13 @@
       draw(context, elapsed) {
         const characterInfo = sequenceInfo(character, elapsed), costumeInfo = costumeFrameInfo(row, characterInfo, elapsed);
         context.clearRect(0, 0, SLOT_SIZE, SLOT_SIZE);
-        const hairSelected = row.category === "hair", outfitSelected = row.category === "outfit";
+        const hairSelected = Boolean(previewCostumes.hair), outfitSelected = Boolean(previewCostumes.outfit);
         if (row.render_plane === "back") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
         const baseVariants = new Set(outfitSelected ? ["A"] : ["A", "B"]);
         drawParts(context, characterParts, characterInfo.sourceIndex, "red", baseVariants);
         if (row.render_plane === "front" && row.category === "outfit") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
         if (row.render_plane === "front" && row.category === "expression") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
-        if (!hairSelected) drawParts(context, characterParts, characterInfo.sourceIndex, "red", new Set(["C"]));
+        if (!hairSelected && !outfitOccupies(previewCostumes, "hair")) drawParts(context, characterParts, characterInfo.sourceIndex, "red", new Set(["C"]));
         if (row.render_plane === "front" && row.category === "hair") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
         drawDefaultHeadband(context, defaultHeadband, characterInfo.sourceIndex, "red");
         if (row.render_plane === "front" && !["outfit", "expression", "hair"].includes(row.category)) drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
@@ -1159,7 +1177,7 @@
   async function createPortraitRenderer() {
     const character = selectedCharacter();
     if (!character) return null;
-    const costumeRows = Object.fromEntries(costumeCategories.map(key => [key, selectedCostume(key)]));
+    const costumeRows = effectiveCostumeRows(Object.fromEntries(costumeCategories.map(key => [key, selectedCostume(key)])));
     const portraitRows = Object.fromEntries(costumeCategories.map(key => {
       const row = costumeRows[key];
       return [key, row?.portrait_supported ? row : null];
@@ -1189,8 +1207,9 @@
         drawParts(context, characterParts, portraitInfo.sourceIndex, color, baseVariants, drawPoint);
         if (portraitRows.outfit && portraitRows.outfit.render_plane !== "back") signature.push(`outfit:${drawCostume(context, "outfit", portraitInfo, drawPoint)}`);
         if (portraitRows.expression && portraitRows.expression.render_plane !== "back") signature.push(`expression:${drawCostume(context, "expression", portraitInfo, drawPoint)}`);
-        if (!portraitRows.hair) drawParts(context, characterParts, portraitInfo.sourceIndex, color, new Set(["C"]), drawPoint);
-        else if (portraitRows.hair.render_plane !== "back") signature.push(`hair:${drawCostume(context, "hair", portraitInfo, drawPoint)}`);
+        if (!portraitRows.hair) {
+          if (!outfitOccupies(portraitRows, "hair")) drawParts(context, characterParts, portraitInfo.sourceIndex, color, new Set(["C"]), drawPoint);
+        } else if (portraitRows.hair.render_plane !== "back") signature.push(`hair:${drawCostume(context, "hair", portraitInfo, drawPoint)}`);
         if (defaultHeadband) {
           drawDefaultHeadband(context, defaultHeadband, portraitInfo.sourceIndex, color, drawPoint, true);
           signature.push(`default-headband:${defaultHeadband.spec.portrait_frame_offset + portraitInfo.sourceIndex}`);
@@ -1443,7 +1462,7 @@
   async function createCompositionRenderer() {
     const baseRows = Object.fromEntries(baseCategories.map(key => [key, selectedBaseRow(key)]));
     const character = selectedCharacter();
-    const costumeRows = Object.fromEntries(costumeCategories.map(key => [key, selectedCostume(key)]));
+    const costumeRows = effectiveCostumeRows(Object.fromEntries(costumeCategories.map(key => [key, selectedCostume(key)])));
     const [defaultBackground, defaultFlag, characterParts, defaultHeadband, ...loaded] = await Promise.all([
       prepareDefaultBackground(), prepareDefaultFlag(), character ? prepareParts(character) : Promise.resolve([]),
       prepareDefaultHeadband(character, costumeRows),
@@ -1480,8 +1499,9 @@
           drawParts(context, characterParts, charInfo.sourceIndex, color, baseVariants);
           if (costumeRows.outfit?.render_plane !== "back") signature.push(`outfit:${drawCostume(context, "outfit", elapsed, charInfo.sourceIndex)}`);
           if (costumeRows.expression?.render_plane !== "back") signature.push(`expression:${drawCostume(context, "expression", elapsed, charInfo.sourceIndex)}`);
-          if (!costumeRows.hair) drawParts(context, characterParts, charInfo.sourceIndex, color, new Set(["C"]));
-          else if (costumeRows.hair.render_plane !== "back") signature.push(`hair:${drawCostume(context, "hair", elapsed, charInfo.sourceIndex)}`);
+          if (!costumeRows.hair) {
+            if (!outfitOccupies(costumeRows, "hair")) drawParts(context, characterParts, charInfo.sourceIndex, color, new Set(["C"]));
+          } else if (costumeRows.hair.render_plane !== "back") signature.push(`hair:${drawCostume(context, "hair", elapsed, charInfo.sourceIndex)}`);
           if (defaultHeadband) { drawDefaultHeadband(context, defaultHeadband, charInfo.sourceIndex, color); signature.push(`default-headband:${charInfo.sourceIndex % defaultHeadband.spec.idle_frame_count}`); }
           for (const key of ["head", "mask", "accessory", "wing", "special"]) if (costumeRows[key]?.render_plane !== "back") signature.push(`${key}:${drawCostume(context, key, elapsed, charInfo.sourceIndex)}`);
           signature.push(`c${charInfo.sourceIndex}`);
@@ -1497,7 +1517,7 @@
   async function createMovementRenderer() {
     const character = selectedCharacter();
     if (!character) return null;
-    const costumeRows = Object.fromEntries(costumeCategories.map(key => [key, selectedCostume(key)]));
+    const costumeRows = effectiveCostumeRows(Object.fromEntries(costumeCategories.map(key => [key, selectedCostume(key)])));
     const [characterEntries, defaultHeadband, fieldObjects, ...loadedCostumes] = await Promise.all([
       Promise.all(movementDirections.map(async direction => [
         direction,
@@ -1543,8 +1563,9 @@
           drawParts(context, characterParts[direction], characterInfo.sourceIndex, color, baseVariants, drawPoint);
           if (costumeInfo.outfit?.renderPlane !== "back") drawCostume("outfit");
           if (costumeInfo.expression?.renderPlane !== "back") drawCostume("expression");
-          if (!costumeRows.hair) drawParts(context, characterParts[direction], characterInfo.sourceIndex, color, new Set(["C"]), drawPoint);
-          else if (costumeInfo.hair?.renderPlane !== "back") drawCostume("hair");
+          if (!costumeRows.hair) {
+            if (!outfitOccupies(costumeRows, "hair")) drawParts(context, characterParts[direction], characterInfo.sourceIndex, color, new Set(["C"]), drawPoint);
+          } else if (costumeInfo.hair?.renderPlane !== "back") drawCostume("hair");
           drawMovementDefaultHeadband(context, defaultHeadband, direction, characterInfo.sourceIndex, color, drawPoint);
           for (const key of ["head", "mask", "accessory", "wing", "special"]) if (costumeInfo[key]?.renderPlane !== "back") drawCostume(key);
         } finally {
@@ -1586,9 +1607,27 @@
   function refreshCostumePickers(previousValues = null) {
     const character = selectedCharacter();
     const compatibleSlots = compatibleCostumeSlots(character);
+    const requestedValues = Object.fromEntries(costumeCategories.map(key => {
+      const select = $(`#pick-costume-${key}`);
+      const value = previousValues && Object.hasOwn(previousValues, key) ? previousValues[key] : select.value;
+      return [key, value];
+    }));
+    const requestedOutfit = costumeByKey.get(requestedValues.outfit) || null;
+    const activeOutfit = requestedOutfit && (requestedOutfit.character_slot == null || compatibleSlots.has(requestedOutfit.character_slot))
+      ? requestedOutfit
+      : null;
+    const occupiedByOutfit = occupiedCostumeCategories(activeOutfit);
     for (const key of costumeCategories) {
       const select = $(`#pick-costume-${key}`);
-      const previous = previousValues && Object.hasOwn(previousValues, key) ? previousValues[key] : select.value;
+      if (key !== "outfit" && occupiedByOutfit.has(key)) {
+        select.innerHTML = `<option value="">${escapeHtml(t("picker.unavailable"))}</option>`;
+        select.value = "";
+        select.disabled = true;
+        select.dataset.blockedByOutfit = activeOutfit.key;
+        continue;
+      }
+      delete select.dataset.blockedByOutfit;
+      const previous = requestedValues[key];
       const compatible = (costumesByCategory.get(key) || []).filter(row => row.character_slot == null || compatibleSlots.has(row.character_slot));
       const slotRank = row => row.character_slot == null ? 0 : row.character_slot === character?.code ? 1 : 2;
       compatible.sort((left, right) => slotRank(left) - slotRank(right) || left.code - right.code || rowLabel(left).localeCompare(rowLabel(right), "ko"));
@@ -1668,7 +1707,10 @@
       if (event.target.id === "pick-character-color") $("#character-color-swatch").style.background = colorSwatch(selectedColor());
       rebuildComposer();
     });
-    $("#costume-pickers").addEventListener("change", rebuildComposer);
+    $("#costume-pickers").addEventListener("change", event => {
+      if (event.target.dataset.costume === "outfit") refreshCostumePickers();
+      rebuildComposer();
+    });
     $("#pickers").addEventListener("change", rebuildComposer);
     $("#field-pickers").addEventListener("change", () => {
       resetMovementBombs();
@@ -1710,7 +1752,13 @@
       else if (row.character_slot != null && !compatibleSlots.has(row.character_slot)) $("#pick-character").value = String(row.character_slot);
       else if (!selectedCharacter()) $("#pick-character").value = String(DEFAULT_CHARACTER_SLOT);
       refreshCostumePickers();
+      const activeOutfit = selectedCostume("outfit");
+      if (row.category !== "outfit" && occupiedCostumeCategories(activeOutfit).has(row.category)) {
+        $("#pick-costume-outfit").value = "";
+        refreshCostumePickers();
+      }
       $(`#pick-costume-${row.category}`).value = row.key;
+      if (row.category === "outfit") refreshCostumePickers();
     }
     category = "tryon"; renderTabs(); showCurrent(); rebuildComposer(); viewer.close(); window.scrollTo({top:0, behavior:"smooth"});
   }

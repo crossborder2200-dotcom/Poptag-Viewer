@@ -56,6 +56,7 @@ const POPTAG_TRANSLATIONS={
   "section.preview_customization":{"KR":"프리뷰 꾸미기","EN":"Preview Customization"},
   "picker.select":{"KR":"선택","EN":"Select"},
   "picker.none":{"KR":"착용 안 함","EN":"None"},
+  "picker.unavailable":{"KR":"착용할 수 없음","EN":"Unavailable"},
   "picker.common":{"KR":"공용","EN":"Shared"},
   "picker.exclusive":{"KR":"{character} 전용","EN":"{character} only"},
   "picker.default_background":{"KR":"기본 배경","EN":"Default background"},
