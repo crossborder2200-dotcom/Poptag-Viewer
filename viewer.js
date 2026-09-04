@@ -79,6 +79,11 @@
   const bombByKey = new Map(bombs.map(row => [row.key, row]));
   const bombByCode = new Map(bombs.map(row => [row.code, row]));
   const characterBySlot = new Map(CHARACTERS.map(row => [row.code, row]));
+  function characterName(characterOrCode) {
+    const character = typeof characterOrCode === "object" ? characterOrCode : characterBySlot.get(Number(characterOrCode));
+    if (!character) return String(characterOrCode ?? "");
+    return TRANSLATIONS[`character.name.${character.code}`]?.[currentLanguage] ?? rowLabel(character);
+  }
   const grid = $("#grid");
   const search = $("#search");
   const sort = $("#sort");
@@ -1540,7 +1545,7 @@
       const compatible = (costumesByCategory.get(key) || []).filter(row => row.character_slot == null || compatibleSlots.has(row.character_slot));
       const slotRank = row => row.character_slot == null ? 0 : row.character_slot === character?.code ? 1 : 2;
       compatible.sort((left, right) => slotRank(left) - slotRank(right) || left.code - right.code || rowLabel(left).localeCompare(rowLabel(right), "ko"));
-      select.innerHTML = `<option value="">${escapeHtml(t("picker.none"))}</option>${compatible.map(row => `<option value="${escapeHtml(row.key)}">${row.character_slot == null ? escapeHtml(t("picker.common")) : escapeHtml(t("picker.exclusive", {slot:String(row.character_slot).padStart(2, "0")}))} · ${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
+      select.innerHTML = `<option value="">${escapeHtml(t("picker.none"))}</option>${compatible.map(row => `<option value="${escapeHtml(row.key)}">${row.character_slot == null ? escapeHtml(t("picker.common")) : escapeHtml(t("picker.exclusive", {character:characterName(row.character_slot)}))} · ${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
       select.value = compatible.some(row => row.key === previous) ? previous : "";
       select.disabled = !compatible.length;
     }
@@ -1566,9 +1571,9 @@
 
   function renderComposerPickers(state = {}) {
     const catalogCharacter = state.catalogCharacter ?? characterFilter.value;
-    characterFilter.innerHTML = `<option value="">${escapeHtml(t("character.all"))}</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
+    characterFilter.innerHTML = `<option value="">${escapeHtml(t("character.all"))}</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(characterName(row))}</option>`).join("")}`;
     characterFilter.value = CHARACTERS.some(row => String(row.code) === String(catalogCharacter)) ? String(catalogCharacter) : "";
-    $("#character-pickers").innerHTML = `<div class="picker"><label for="pick-character">${escapeHtml(t("character.label"))}</label><select id="pick-character"><option value="">${escapeHtml(t("picker.none"))}</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div><div class="picker"><label for="pick-character-color">${escapeHtml(t("character.render_color"))}</label><div class="color-choice"><select id="pick-character-color">${characterColors.map(([value, nameKey]) => `<option value="${value}">${escapeHtml(t(nameKey))}</option>`).join("")}</select><span class="color-swatch" id="character-color-swatch" aria-hidden="true"></span></div></div>`;
+    $("#character-pickers").innerHTML = `<div class="picker"><label for="pick-character">${escapeHtml(t("character.label"))}</label><select id="pick-character"><option value="">${escapeHtml(t("picker.none"))}</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(characterName(row))}</option>`).join("")}</select></div><div class="picker"><label for="pick-character-color">${escapeHtml(t("character.render_color"))}</label><div class="color-choice"><select id="pick-character-color">${characterColors.map(([value, nameKey]) => `<option value="${value}">${escapeHtml(t(nameKey))}</option>`).join("")}</select><span class="color-swatch" id="character-color-swatch" aria-hidden="true"></span></div></div>`;
     $("#pick-character").value = CHARACTERS.some(row => String(row.code) === String(state.character)) ? String(state.character) : "";
     $("#pick-character-color").value = characterColors.some(([value]) => value === state.color) ? state.color : "red";
     $("#costume-pickers").innerHTML = costumeCategories.map(key => `<div class="picker"><div class="picker-label-row"><label for="pick-costume-${key}">${escapeHtml(t(costumeLabels[key]))}</label>${categoryListButton(key, costumeLabels[key])}</div><select id="pick-costume-${key}" data-costume="${key}"></select></div>`).join("");
@@ -1610,7 +1615,7 @@
   }
 
   function setupComposer() {
-    renderComposerPickers({color:"red"});
+    renderComposerPickers({character:10, color:"red"});
     $("#character-pickers").addEventListener("change", event => {
       if (event.target.id === "pick-character") refreshCostumePickers();
       if (event.target.id === "pick-character-color") $("#character-color-swatch").style.background = colorSwatch(selectedColor());
