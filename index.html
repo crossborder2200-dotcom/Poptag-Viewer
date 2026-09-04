@@ -18,7 +18,7 @@
     button { color:inherit; }
     button:disabled { opacity:.48; cursor:not-allowed; }
     header { position:sticky; top:0; z-index:20; padding:18px 24px 14px; background:rgba(8,11,18,.94); border-bottom:1px solid var(--line); backdrop-filter:blur(18px); }
-    .top { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:14px; padding-right:108px; }
+    .top { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:14px; padding-right:160px; }
     .brand-line { display:flex; align-items:center; gap:14px; min-width:0; }
     h1 { margin:0; font-size:clamp(1.35rem,3vw,2rem); letter-spacing:-.04em; }
     .count { color:var(--cyan); font-weight:800; }
@@ -148,13 +148,16 @@
     .resource-path-guide { margin:0; color:var(--muted); text-align:center; line-height:1.6; }
     .resource-translation-note { display:none; margin:0; color:var(--muted); font-size:14px; line-height:1.5; }
     html[lang="en"] .resource-translation-note { display:block; }
+    html[lang="zh-Hant"] .resource-translation-note { display:block; }
+    html[lang="zh-Hant"] body { font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif; }
     @media (min-width:1181px) and (min-height:820px) { .preview-palette { position:sticky; top:18px; max-height:calc(100vh - 36px); overflow:auto; } }
     @media (max-width:1180px) { #composer { grid-template-columns:1fr; max-width:980px; } .composer-sidebar { grid-template-columns:minmax(300px,.72fr) minmax(0,1.28fr); align-items:start; } }
     @media (max-width:760px) { header,main { padding-left:14px; padding-right:14px; } .top { gap:10px; padding-right:90px; } .language-switch { top:12px; right:14px; } .language-switch button { min-width:38px; padding:0 7px; } .brand-line { gap:10px; } .tryon-button { min-height:44px; padding:0 17px; } .count { font-size:.86rem; } .controls { grid-template-columns:1fr 1fr; } .controls input,.character-filter { grid-column:1/-1; } .details { grid-template-columns:1fr 1fr; } .preview-shell { height:min(var(--thumb),70vw); } .preview-shell.id-deco-preview { height:112px; } .preview-workspace { grid-template-columns:1fr; grid-template-areas:"movement" "slot" "id"; padding:10px; } .composer-sidebar { grid-template-columns:1fr; } .character-grid,.costume-grid,#pickers,.preview-picker-grid { grid-template-columns:1fr; row-gap:12px; } .movement-head { align-items:flex-start; flex-direction:column; } .movement-scale-control { align-self:stretch; } .movement-scale-control button { flex:1; } }
+    @media (max-width:760px) { .top { padding-right:0; padding-top:36px; flex-wrap:wrap; } }
   </style>
 </head>
 <body>
-  <div class="language-switch" id="language-switch" role="group" aria-label="언어 선택" data-i18n-aria="language.selector"><button class="active" type="button" data-language="KR" aria-pressed="true">KR</button><button type="button" data-language="EN" aria-pressed="false">EN</button></div>
+  <div class="language-switch" id="language-switch" role="group" aria-label="언어 선택" data-i18n-aria="language.selector"><button class="active" type="button" data-language="KR" aria-pressed="true">KR</button><button type="button" data-language="EN" aria-pressed="false">EN</button><button type="button" data-language="TW" aria-pressed="false">TW</button></div>
   <aside class="resource-gate" id="resource-gate" aria-modal="true" role="dialog">
     <div class="resource-gate-card">
       <p class="resource-path-guide" data-i18n="folder.default_guide">보통 기본 경로는 C:\Nexon\Poptag입니다.</p>
@@ -184,15 +187,18 @@
     <div class="modal-head"><div class="modal-title"><strong id="vcode"></strong><span id="vname"></span></div><div class="modal-actions"><button class="try-button" id="try-item" type="button" data-i18n="action.equip">착용</button><button class="close" id="close" type="button" aria-label="닫기" data-i18n-aria="modal.close">×</button></div></div>
     <div class="modal-content"><div class="full-shell" id="modal-shell"><div class="modal-palette"><div class="palette-labels" id="modal-palette-labels" hidden><span data-i18n="palette.lobby">로비</span><span data-i18n="palette.in_game">게임 안</span></div><canvas id="modal-canvas" width="148" height="148"></canvas></div></div><div class="details" id="details"></div></div>
   </dialog>
-  <script src="translations.js?v=20260905-13"></script>
-  <script src="resource-translations.auto.js?v=20260905-13"></script>
-  <script src="resource-translations.manual.js?v=20260905-13"></script>
-  <script src="catalog-data.js?v=20260905-13"></script>
-  <script src="characters-data.js?v=20260905-13"></script>
-  <script src="costumes-data.js?v=20260905-13"></script>
-  <script src="id-deco-data.js?v=20260905-13"></script>
-  <script src="bombs-data.js?v=20260905-13"></script>
-  <script src="resource-data.js?v=20260905-13"></script>
-  <script src="viewer.js?v=20260905-13"></script>
+  <script src="translations.js?v=20260905-15"></script>
+  <script src="translations.tw.js?v=20260905-15"></script>
+  <script src="resource-translations.auto.js?v=20260905-15"></script>
+  <script src="resource-translations.manual.js?v=20260905-15"></script>
+  <script src="resource-translations.tw.auto.js?v=20260905-15"></script>
+  <script src="resource-translations.tw.manual.js?v=20260905-15"></script>
+  <script src="catalog-data.js?v=20260905-15"></script>
+  <script src="characters-data.js?v=20260905-15"></script>
+  <script src="costumes-data.js?v=20260905-15"></script>
+  <script src="id-deco-data.js?v=20260905-15"></script>
+  <script src="bombs-data.js?v=20260905-15"></script>
+  <script src="resource-data.js?v=20260905-15"></script>
+  <script src="viewer.js?v=20260905-15"></script>
 </body>
 </html>
