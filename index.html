@@ -56,8 +56,17 @@
     .unlinked { border-color:#5b4535; }
     .unlinked .name { color:#deb583; }
     .empty { grid-column:1/-1; padding:16vh 20px; text-align:center; color:var(--muted); }
-    #composer { display:none; grid-template-columns:minmax(300px,420px) minmax(210px,260px) minmax(300px,1fr); align-items:start; gap:16px; max-width:1280px; margin:0 auto; }
-    .stage-panel,.pick-panel { background:linear-gradient(145deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:16px; padding:18px; }
+    #composer { display:none; grid-template-columns:minmax(250px,320px) minmax(0,1fr); align-items:start; gap:16px; max-width:1500px; margin:0 auto; }
+    .pick-panel,.preview-palette { background:linear-gradient(145deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:16px; padding:18px; }
+    .preview-palette { grid-column:1/-1; min-width:0; overflow:hidden; padding:0; }
+    .preview-board-head { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:64px; padding:14px 18px; border-bottom:1px solid var(--line); background:rgba(8,13,23,.42); }
+    .preview-board-head h2 { margin:0; font-size:1.08rem; letter-spacing:-.02em; }
+    .preview-workspace { display:grid; grid-template-columns:minmax(280px,420px) minmax(0,1fr); grid-template-areas:"slot movement" "id id"; align-items:start; gap:18px; padding:18px; }
+    .preview-zone { min-width:0; }
+    .slot-zone { grid-area:slot; }
+    .movement-zone { grid-area:movement; }
+    .preview-zone-title { display:flex; align-items:center; gap:9px; min-height:32px; margin-bottom:12px; }
+    .preview-zone-title h2 { margin:0; color:var(--cyan); font-size:1rem; }
     .stage { width:min(100%,520px); aspect-ratio:1; margin:auto; overflow:hidden; border:1px solid #526580; border-radius:12px; background-size:24px 24px; background-position:0 0,0 12px,12px -12px,-12px 0; }
     #stage-canvas { width:100%; height:100%; display:block; image-rendering:pixelated; }
     .picker { margin-bottom:15px; }
@@ -70,11 +79,26 @@
     .color-choice { display:grid; grid-template-columns:minmax(0,1fr) 45px; gap:8px; }
     .color-swatch { border:1px solid #526580; border-radius:10px; box-shadow:inset 0 0 0 4px rgba(255,255,255,.1); }
     .render-button,.primary { width:100%; min-height:48px; color:#061017; background:var(--cyan); border:0; border-radius:11px; cursor:pointer; font-weight:900; }
-    .id-deco-panel { grid-column:1/-1; min-width:0; background:linear-gradient(145deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:16px; padding:18px; }
-    .id-deco-toolbar { display:grid; grid-template-columns:minmax(240px,1fr) 130px; align-items:end; gap:12px; margin-bottom:14px; }
+    .title-gif-button { width:auto; min-width:54px; min-height:32px; padding:0 10px; border-radius:9px; font-size:.82rem; line-height:1; }
+    .title-gif-button:disabled { cursor:not-allowed; opacity:.42; }
+    .movement-head { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:28px; margin-bottom:12px; }
+    .movement-head h2 { margin:0; color:var(--cyan); font-size:1rem; }
+    .movement-scale-control { display:flex; align-items:center; gap:4px; padding:3px; color:var(--muted); background:#0b111d; border:1px solid #34435b; border-radius:10px; font-size:.78rem; font-weight:900; }
+    .movement-scale-control > span { padding:0 7px 0 5px; white-space:nowrap; }
+    .movement-scale-control button { min-width:45px; min-height:30px; padding:0 8px; color:var(--muted); background:transparent; border:0; border-radius:7px; cursor:pointer; font-size:.8rem; font-weight:900; }
+    .movement-scale-control button:hover { color:var(--text); background:#172238; }
+    .movement-scale-control button.active { color:#061017; background:var(--cyan); box-shadow:0 3px 12px rgba(98,228,255,.22); }
+    .movement-canvas-wrap { position:relative; width:100%; aspect-ratio:16/9; overflow:hidden; border:1px solid #8a6416; border-radius:12px; background-color:#b8861e; background-image:none; background-repeat:repeat; background-position:0 0; image-rendering:pixelated; }
+    #movement-canvas { width:100%; height:100%; display:block; image-rendering:pixelated; }
+    #movement-canvas:focus-visible { outline:3px solid var(--cyan); outline-offset:-4px; }
+    .movement-empty { position:absolute; inset:0; display:grid; place-items:center; margin:0; color:#53647b; font-weight:900; pointer-events:none; }
+    .movement-empty[hidden] { display:none; }
+    .id-deco-zone { grid-area:id; min-width:0; padding-top:18px; border-top:1px solid var(--line); }
+    .id-deco-content { display:grid; grid-template-columns:minmax(230px,320px) minmax(0,1fr); align-items:center; gap:18px; }
+    .id-deco-toolbar { margin:0; }
     .id-deco-toolbar .picker { margin:0; }
-    .id-deco-panel > .id-deco-palette { width:min(100%,820px); margin:auto; }
-    .id-deco-panel > .id-deco-palette > .palette-labels { padding:0 15px; }
+    .id-deco-zone .id-deco-palette { width:min(100%,900px); margin:auto; }
+    .id-deco-zone .id-deco-palette > .palette-labels { padding:0 15px; }
     .id-deco-stage { width:100%; overflow:hidden; padding:14px; border:1px solid #526580; border-radius:12px; background-size:20px 20px; background-position:0 0,0 10px,10px -10px,-10px 0; }
     #id-deco-canvas { width:100%; }
     dialog { width:min(1180px,94vw); max-height:92vh; padding:0; color:var(--text); background:#0d1320; border:1px solid #435472; border-radius:16px; box-shadow:0 30px 90px #000; }
@@ -101,8 +125,8 @@
     .resource-gate { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:20px; background:rgba(5,8,14,.94); backdrop-filter:blur(16px); }
     .resource-gate.ready { display:none; }
     .resource-gate > .primary { width:min(360px,100%); box-shadow:0 24px 80px #000; }
-    @media (max-width:980px) { #composer { grid-template-columns:minmax(280px,420px) minmax(260px,1fr); max-width:900px; } .stage-panel { grid-row:1 / span 2; } .character-panel,.item-panel { grid-column:2; } }
-    @media (max-width:760px) { header,main { padding-left:14px; padding-right:14px; } .top { gap:10px; } .brand-line { gap:10px; } .tryon-button { min-height:44px; padding:0 17px; } .count { font-size:.86rem; } .controls { grid-template-columns:1fr 1fr; } .controls input,.character-filter { grid-column:1/-1; } .details { grid-template-columns:1fr 1fr; } .preview-shell { height:min(var(--thumb),70vw); } .preview-shell.id-deco-preview { height:112px; } #composer { grid-template-columns:1fr; } .stage-panel,.character-panel,.item-panel,.id-deco-panel { grid-column:auto; grid-row:auto; } .costume-grid { grid-template-columns:1fr; } .id-deco-toolbar { grid-template-columns:1fr; } }
+    @media (max-width:980px) { #composer { grid-template-columns:minmax(240px,300px) minmax(0,1fr); max-width:900px; } .preview-workspace { grid-template-columns:minmax(240px,320px) minmax(0,1fr); } }
+    @media (max-width:760px) { header,main { padding-left:14px; padding-right:14px; } .top { gap:10px; } .brand-line { gap:10px; } .tryon-button { min-height:44px; padding:0 17px; } .count { font-size:.86rem; } .controls { grid-template-columns:1fr 1fr; } .controls input,.character-filter { grid-column:1/-1; } .details { grid-template-columns:1fr 1fr; } .preview-shell { height:min(var(--thumb),70vw); } .preview-shell.id-deco-preview { height:112px; } #composer { grid-template-columns:1fr; } .preview-workspace { grid-template-columns:1fr; grid-template-areas:"slot" "movement" "id"; } .preview-palette,.character-panel,.item-panel { grid-column:auto; grid-row:auto; } .costume-grid,.id-deco-content { grid-template-columns:1fr; } .movement-head { align-items:flex-start; flex-direction:column; } .movement-scale-control { align-self:stretch; } .movement-scale-control button { flex:1; } }
   </style>
 </head>
 <body>
@@ -123,10 +147,9 @@
   <main>
     <section id="grid" aria-live="polite"></section>
     <section id="composer">
-      <div class="stage-panel"><div class="stage"><canvas id="stage-canvas" width="148" height="148"></canvas></div></div>
+      <div class="preview-palette"><div class="preview-board-head"><h2>미리보기</h2></div><div class="preview-workspace"><div class="preview-zone slot-zone"><div class="preview-zone-title"><h2>슬롯</h2><button class="render-button title-gif-button" id="render" type="button" aria-label="슬롯 GIF 저장">GIF</button></div><div class="stage"><canvas id="stage-canvas" width="148" height="148"></canvas></div></div><div class="preview-zone movement-zone"><div class="movement-head"><h2>프리뷰</h2><div class="movement-scale-control" id="movement-scale-control" role="group" aria-label="프리뷰 렌더링 크기"><span>렌더링 크기</span><button type="button" data-movement-scale="1" aria-pressed="false">x1</button><button type="button" data-movement-scale="1.5" aria-pressed="false">x1.5</button><button class="active" type="button" data-movement-scale="2" aria-pressed="true">x2</button></div></div><div class="movement-canvas-wrap"><canvas id="movement-canvas" width="640" height="360" tabindex="0" aria-label="방향키로 이동하고 Space 키로 물풍선을 놓는 프리뷰"></canvas><p class="movement-empty" id="movement-empty">캐릭터를 선택하세요</p></div></div><div class="id-deco-zone"><div class="preview-zone-title"><h2>아이디치장</h2><button class="render-button title-gif-button" id="render-id-deco" type="button" aria-label="아이디치장 GIF 저장" disabled>GIF</button></div><div class="id-deco-content"><div class="id-deco-toolbar"><div class="picker"><label for="pick-id-deco">선택</label><select id="pick-id-deco"><option value="">착용 안 함</option></select></div></div><div class="id-deco-palette"><div class="palette-labels"><span>로비</span><span>게임 안</span></div><div class="id-deco-stage"><canvas class="id-deco-canvas" id="id-deco-canvas" width="380" height="88"></canvas></div></div></div></div></div></div>
       <div class="pick-panel character-panel" id="character-pickers"></div>
       <div class="pick-panel item-panel"><div class="picker-section"><h2>캐릭터 코스튬</h2><div class="costume-grid" id="costume-pickers"></div></div><div class="picker-section"><h2>슬롯 꾸미기</h2><div id="pickers"></div></div></div>
-      <div class="id-deco-panel"><div class="id-deco-toolbar"><div class="picker"><label for="pick-id-deco">아이디치장</label><select id="pick-id-deco"><option value="">착용 안 함</option></select></div><button class="render-button" id="render-id-deco" type="button" disabled>GIF</button></div><div class="id-deco-palette"><div class="palette-labels"><span>로비</span><span>게임 안</span></div><div class="id-deco-stage"><canvas class="id-deco-canvas" id="id-deco-canvas" width="380" height="88"></canvas></div></div></div>
     </section>
   </main>
   <dialog id="viewer">
@@ -134,10 +157,10 @@
     <div class="modal-content"><div class="full-shell" id="modal-shell"><div class="modal-palette"><div class="palette-labels" id="modal-palette-labels" hidden><span>로비</span><span>게임 안</span></div><canvas id="modal-canvas" width="148" height="148"></canvas></div></div><div class="details" id="details"></div></div>
   </dialog>
   <script src="catalog-data.js?v=20260904-7"></script>
-  <script src="characters-data.js?v=20260904-7"></script>
-  <script src="costumes-data.js?v=20260904-7"></script>
-  <script src="id-deco-data.js?v=20260904-8"></script>
-  <script src="resource-data.js?v=20260904-8"></script>
-  <script src="viewer.js?v=20260904-8"></script>
+  <script src="characters-data.js?v=20260904-12"></script>
+  <script src="costumes-data.js?v=20260904-12"></script>
+  <script src="id-deco-data.js?v=20260904-12"></script>
+  <script src="resource-data.js?v=20260904-17"></script>
+  <script src="viewer.js?v=20260904-17"></script>
 </body>
 </html>

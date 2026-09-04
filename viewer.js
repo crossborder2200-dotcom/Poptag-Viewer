@@ -3,22 +3,40 @@
 
   const $ = selector => document.querySelector(selector);
   const SLOT_SIZE = 148;
+  const MOVEMENT_WIDTH = 640;
+  const MOVEMENT_HEIGHT = 360;
+  const MOVEMENT_SPEED = 216;
+  const MOVEMENT_RENDER_SCALES = new Set([1, 1.5, 2]);
+  const DEFAULT_MOVEMENT_RENDER_SCALE = 2;
+  const FIELD_BOMB_LIMIT = 6;
+  const FIELD_BOMB_FUSE = 3000;
+  const FIELD_CHAIN_WINDOW = 2500;
+  const FIELD_BOMB_FRAME_DURATION = 180;
+  const FIELD_FIRE_TICK = 30;
+  const FIELD_FIRE_DURATION = 570;
+  const FIELD_FIRE_POWER = 2;
   const ID_DECO_WIDTH = 380;
   const ID_DECO_HEIGHT = 88;
   const ID_DECO_CELL_WIDTH = 182;
   const ID_DECO_GAP = 16;
+  // CPortraitWnd draws the game ID decoration at slot (-7, -5), while its
+  // PortraitSlot child is positioned at the slot origin. The portrait is
+  // therefore (+7, +5) from the decoration's authored draw point.
+  const ID_DECO_PORTRAIT_OFFSET = [7, 5];
   const ID_DECO_CATEGORY = "id_deco";
   const CHARACTER_DRAW_POINT = [37, 119];
   const DEFAULT_FRAME_DURATION = 120;
   const MAX_GIF_DURATION = 12000;
   const DEFAULT_CHARACTER_SLOT = 5;
-  const CACHE_LIMIT = 72;
+  const CACHE_LIMIT = 192;
   const baseLabels = {background:"배경", flag:"깃발", prop:"소품", effect:"효과"};
   const costumeLabels = {expression:"표정", hair:"가발", head:"모자", mask:"가면", outfit:"의상", accessory:"액세서리", wing:"날개", special:"특수효과"};
   const extraLabels = {[ID_DECO_CATEGORY]:"아이디치장"};
   const categoryLabels = {...baseLabels, ...costumeLabels, ...extraLabels};
   const baseCategories = Object.keys(baseLabels);
   const costumeCategories = Object.keys(costumeLabels);
+  const movementDirections = ["down", "right", "up", "left"];
+  const movementDirectionByKey = new Map([["ArrowDown","down"],["ArrowRight","right"],["ArrowUp","up"],["ArrowLeft","left"]]);
   const extraCategories = Object.keys(extraLabels);
   const costumeInheritance = new Map([[10,4],[11,7],[12,6],[14,0],[15,8],[17,2],[18,1],[25,9],[27,19],[28,26],[29,16]]);
   // Webpage.exe applies these hue/lightness/saturation adjustments while it
@@ -51,7 +69,14 @@
   let modalAnimation = null;
   let composerAnimation = null;
   let idDecoAnimation = null;
+  let movementAnimation = null;
   let lastAnimationTick = 0;
+  const heldMovementDirections = new Set();
+  let movementDirectionOrder = [];
+  const movementState = {x:MOVEMENT_WIDTH / 2, y:Math.round(MOVEMENT_HEIGHT * .64), direction:"down", moving:false, walkStarted:0};
+  let movementRenderScale = DEFAULT_MOVEMENT_RENDER_SCALE;
+  let movementBombs = [];
+  let nextMovementBombId = 1;
 
   const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;"}[character]));
   const rowLabel = row => row.item_names?.length ? row.item_names.join(" / ") : "이름 없음 · 리소스만 있음";
@@ -323,6 +348,8 @@
     gateStatus("IDD 파일을 확인하는 중…");
     try {
       resourceStore = new ResourceStore(await validateFiles(files));
+      resetMovementBombs();
+      await applyMovementFieldTiles();
       if (handle) await saveDirectoryHandle(handle);
       gateStatus("연결되었습니다.", "ok");
       $("#resource-gate").classList.add("ready");
@@ -416,6 +443,252 @@
     return {sequenceIndex:0, sourceIndex:sequence[0], period, durations};
   }
 
+  function movementVector(direction, moving = true) {
+    if (!moving) return {x:0, y:0};
+    return {
+      x:(direction === "right" ? 1 : 0) - (direction === "left" ? 1 : 0),
+      y:(direction === "down" ? 1 : 0) - (direction === "up" ? 1 : 0),
+    };
+  }
+
+  function movementCellForPosition(position, cellSize, width = MOVEMENT_WIDTH, height = MOVEMENT_HEIGHT, cellAnchor = [0, cellSize]) {
+    const columns = Math.max(1, Math.ceil(width / cellSize));
+    const rows = Math.max(1, Math.ceil(height / cellSize));
+    return {
+      column:Math.max(0, Math.min(columns - 1, Math.floor((position.x - cellAnchor[0] + cellSize / 2) / cellSize))),
+      row:Math.max(0, Math.min(rows - 1, Math.floor((position.y - cellAnchor[1] + cellSize / 2) / cellSize))),
+    };
+  }
+
+  function movementCellRect(cell, cellSize, cellAnchor = [0, cellSize]) {
+    const centerX = cell.column * cellSize + cellAnchor[0];
+    const centerY = cell.row * cellSize + cellAnchor[1];
+    return {
+      left:centerX - cellSize / 2,
+      top:centerY - cellSize / 2,
+      right:centerX + cellSize / 2,
+      bottom:centerY + cellSize / 2,
+    };
+  }
+
+  function movementPositionInsideCell(position, cell, cellSize, cellAnchor = [0, cellSize]) {
+    const rect = movementCellRect(cell, cellSize, cellAnchor);
+    return position.x >= rect.left && position.x < rect.right && position.y >= rect.top && position.y < rect.bottom;
+  }
+
+  function movementCellDrawPoint(cell, gridSize, renderScale = 1, drawOrigin = [0, gridSize[1] - 1]) {
+    return [
+      (cell.column * gridSize[0] + drawOrigin[0]) * renderScale,
+      (cell.row * gridSize[1] + drawOrigin[1]) * renderScale,
+    ];
+  }
+
+  function movementCellVisible(cell, cellSize, width = MOVEMENT_WIDTH, height = MOVEMENT_HEIGHT) {
+    return cell.column >= 0 && cell.row >= 0 && cell.column * cellSize < width && cell.row * cellSize < height;
+  }
+
+  function movementBombExplosionTime(bomb, fuse = FIELD_BOMB_FUSE) {
+    return Number.isFinite(bomb.explodeAt) ? bomb.explodeAt : bomb.placedAt + fuse;
+  }
+
+  function movementBombPhase(bomb, now, fuse = FIELD_BOMB_FUSE, fireDuration = FIELD_FIRE_DURATION) {
+    const fireElapsed = now - movementBombExplosionTime(bomb, fuse);
+    if (fireElapsed < 0) return {state:"bomb", elapsed:now - bomb.placedAt};
+    if (fireElapsed < fireDuration) return {state:"fire", elapsed:fireElapsed};
+    return {state:"expired", elapsed:fireElapsed};
+  }
+
+  function activeMovementBombCount(bombs, now, fuse = FIELD_BOMB_FUSE) {
+    return bombs.filter(bomb => movementBombPhase(bomb, now, fuse, Number.POSITIVE_INFINITY).state === "bomb").length;
+  }
+
+  function movementFireCells(origin, power = FIELD_FIRE_POWER) {
+    const cells = [{...origin, direction:"center", distance:0}];
+    for (const [direction, column, row] of [["left",-1,0],["up",0,-1],["right",1,0],["down",0,1]]) {
+      for (let distance = 1; distance <= power; distance++) cells.push({
+        column:origin.column + column * distance,
+        row:origin.row + row * distance,
+        direction,
+        distance,
+      });
+    }
+    return cells;
+  }
+
+  function movementFireFrame(cell, visibleMaxDistance, elapsed, spec) {
+    const directionalSequences = spec.fire_direction_sequences?.[cell.direction] || [];
+    const remainingIndex = Math.max(0, Math.min(directionalSequences.length - 1, visibleMaxDistance - cell.distance));
+    const sequence = cell.direction === "center" ? spec.fire_center_sequence : directionalSequences[remainingIndex];
+    if (!sequence?.length) return null;
+    const sequenceIndex = Math.floor(Math.max(0, elapsed) / (spec.fire_tick_ms || FIELD_FIRE_TICK));
+    return sequenceIndex < sequence.length ? sequence[sequenceIndex] : null;
+  }
+
+  function movementChainOriginTime(bomb) {
+    return Number.isFinite(bomb.chainOriginPlacedAt) ? bomb.chainOriginPlacedAt : bomb.placedAt;
+  }
+
+  function triggerMovementBombChains(bombs, now, power = FIELD_FIRE_POWER, fuse = FIELD_BOMB_FUSE, fireDuration = FIELD_FIRE_DURATION, chainWindow = FIELD_CHAIN_WINDOW) {
+    let changed = true, triggered = 0;
+    while (changed) {
+      changed = false;
+      for (const source of bombs) {
+        const sourceTime = movementBombExplosionTime(source, fuse);
+        const sourceEnd = sourceTime + fireDuration;
+        if (sourceTime > now || now >= sourceEnd) continue;
+        const originPlacedAt = movementChainOriginTime(source);
+        const reached = new Set(movementFireCells(source, power).map(cell => `${cell.column},${cell.row}`));
+        for (const target of bombs) {
+          if (target === source || !reached.has(`${target.column},${target.row}`)) continue;
+          // A chain keeps the placement time of the bomb that started it.
+          // Bombs placed more than 2.5 seconds after that origin remain intact,
+          // even if an intermediate chained flame reaches their tile.
+          if (target.placedAt < originPlacedAt || target.placedAt - originPlacedAt > chainWindow) continue;
+          const targetTime = movementBombExplosionTime(target, fuse);
+          const hitTime = Math.max(sourceTime, target.placedAt);
+          if (hitTime > now || hitTime >= sourceEnd || targetTime <= hitTime) continue;
+          target.explodeAt = hitTime;
+          target.chainOriginPlacedAt = originPlacedAt;
+          triggered++;
+          changed = true;
+        }
+      }
+    }
+    return triggered;
+  }
+
+  function resolveMovementBombPosition(bombs, currentPosition, nextPosition, now, cellSize, fuse = FIELD_BOMB_FUSE, cellAnchor = [0, cellSize]) {
+    const resolved = {...nextPosition};
+    const deltaX = nextPosition.x - currentPosition.x, deltaY = nextPosition.y - currentPosition.y;
+    const edgeInset = .001;
+    for (const bomb of bombs) {
+      if (bomb.ownerCanPass === true || movementBombPhase(bomb, now, fuse, Number.POSITIVE_INFINITY).state !== "bomb") continue;
+      if (movementPositionInsideCell(currentPosition, bomb, cellSize, cellAnchor)) continue;
+      const rect = movementCellRect(bomb, cellSize, cellAnchor);
+      const insideRows = nextPosition.y >= rect.top && nextPosition.y < rect.bottom;
+      const insideColumns = nextPosition.x >= rect.left && nextPosition.x < rect.right;
+      if (deltaX > 0 && insideRows && currentPosition.x < rect.left && nextPosition.x >= rect.left) resolved.x = Math.min(resolved.x, rect.left - edgeInset);
+      else if (deltaX < 0 && insideRows && currentPosition.x >= rect.right && nextPosition.x < rect.right) resolved.x = Math.max(resolved.x, rect.right);
+      else if (deltaY > 0 && insideColumns && currentPosition.y < rect.top && nextPosition.y >= rect.top) resolved.y = Math.min(resolved.y, rect.top - edgeInset);
+      else if (deltaY < 0 && insideColumns && currentPosition.y >= rect.bottom && nextPosition.y < rect.bottom) resolved.y = Math.max(resolved.y, rect.bottom);
+    }
+    return resolved;
+  }
+
+  function movementBombBlocksPosition(bombs, currentPosition, nextPosition, now, cellSize, fuse = FIELD_BOMB_FUSE, cellAnchor = [0, cellSize]) {
+    const resolved = resolveMovementBombPosition(bombs, currentPosition, nextPosition, now, cellSize, fuse, cellAnchor);
+    return resolved.x !== nextPosition.x || resolved.y !== nextPosition.y;
+  }
+
+  function releaseMovementBombPassThrough(bombs, position, now, cellSize, fuse = FIELD_BOMB_FUSE, cellAnchor = [0, cellSize]) {
+    for (const bomb of bombs) {
+      if (bomb.ownerCanPass !== true || movementBombPhase(bomb, now, fuse, Number.POSITIVE_INFINITY).state !== "bomb") continue;
+      if (!movementPositionInsideCell(position, bomb, cellSize, cellAnchor)) bomb.ownerCanPass = false;
+    }
+  }
+
+  function movementCharacterScale() { return movementRenderScale; }
+
+  function setMovementRenderScale(value) {
+    const next = Number(value);
+    if (!MOVEMENT_RENDER_SCALES.has(next)) return false;
+    document.querySelectorAll("[data-movement-scale]").forEach(button => {
+      const active = Number(button.dataset.movementScale) === next;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    if (next === movementRenderScale) return true;
+    movementRenderScale = next;
+    resetMovementBombs();
+    updateMovementFieldTileScale(next);
+    if (movementAnimation && category === "tryon") drawMovementAnimation(movementAnimation, performance.now());
+    return true;
+  }
+
+  function updateMovementFieldTileScale(renderScale = movementCharacterScale()) {
+    const wrapper = $(".movement-canvas-wrap");
+    if (wrapper?.dataset.tilePatternReady !== "true") return;
+    const movementWidth = $("#movement-canvas")?.getBoundingClientRect().width || 0;
+    if (!movementWidth) return;
+    const spec = RESOURCE_MANIFEST.defaults.field_tiles;
+    const displayScale = renderScale * (movementWidth / MOVEMENT_WIDTH);
+    const width = Math.max(2, spec.pattern_size[0] * displayScale);
+    const height = Math.max(2, spec.pattern_size[1] * displayScale);
+    const key = `${width.toFixed(4)}x${height.toFixed(4)}`;
+    if (wrapper.dataset.tilePatternSize === key) return;
+    wrapper.style.backgroundSize = `${width.toFixed(4)}px ${height.toFixed(4)}px`;
+    wrapper.dataset.tilePatternSize = key;
+  }
+
+  function movementFireDuration() {
+    return RESOURCE_MANIFEST.defaults.field_objects?.fire_duration_ms || FIELD_FIRE_DURATION;
+  }
+
+  function updateMovementBombStatus(now = performance.now()) {
+    const active = activeMovementBombCount(movementBombs, now, FIELD_BOMB_FUSE);
+    const status = $("#movement-bomb-status");
+    if (status) status.textContent = `물풍선 ${active} / ${FIELD_BOMB_LIMIT}`;
+  }
+
+  function pruneMovementBombs(now = performance.now()) {
+    const duration = movementFireDuration();
+    triggerMovementBombChains(movementBombs, now, FIELD_FIRE_POWER, FIELD_BOMB_FUSE, duration);
+    movementBombs = movementBombs.filter(bomb => movementBombPhase(bomb, now, FIELD_BOMB_FUSE, duration).state !== "expired");
+    updateMovementBombStatus(now);
+  }
+
+  function resetMovementBombs() {
+    movementBombs = [];
+    nextMovementBombId = 1;
+    updateMovementBombStatus();
+  }
+
+  function placeMovementBomb(now = performance.now()) {
+    if (!movementAnimation || category !== "tryon") return false;
+    pruneMovementBombs(now);
+    if (activeMovementBombCount(movementBombs, now, FIELD_BOMB_FUSE) >= FIELD_BOMB_LIMIT) return false;
+    const spec = RESOURCE_MANIFEST.defaults.field_objects;
+    const renderScale = movementCharacterScale();
+    const cellSize = spec.grid_size[0] * renderScale;
+    const cellAnchor = spec.grid_draw_origin.map(value => value * renderScale);
+    // Character and bomb object positions use the same client grid anchor.
+    // Choosing the nearest authored bomb anchor keeps placement centered on
+    // the visual tile even though that anchor sits at its lower-left edge.
+    const cell = movementCellForPosition(movementState, cellSize, MOVEMENT_WIDTH, MOVEMENT_HEIGHT, cellAnchor);
+    if (movementBombs.some(bomb => bomb.column === cell.column && bomb.row === cell.row)) return false;
+    movementBombs.push({id:nextMovementBombId++, ...cell, placedAt:now, explodeAt:now + FIELD_BOMB_FUSE, ownerCanPass:true});
+    updateMovementBombStatus(now);
+    return true;
+  }
+
+  function clampMovementPosition(position, bounds, width = MOVEMENT_WIDTH, height = MOVEMENT_HEIGHT, renderScale = 1) {
+    const minX = Math.max(0, -bounds.left * renderScale), maxX = Math.min(width, width - bounds.right * renderScale);
+    const minY = Math.max(0, -bounds.top * renderScale), maxY = Math.min(height, height - bounds.bottom * renderScale);
+    return {
+      x:Math.max(minX, Math.min(maxX, position.x)),
+      y:Math.max(minY, Math.min(maxY, position.y)),
+    };
+  }
+
+  function portraitTimelineRow(character) {
+    return {
+      frame_count:character.portrait_frame_count,
+      frame_sequence:character.portrait_frame_sequence,
+      frame_durations:character.portrait_frame_durations,
+    };
+  }
+
+  function portraitCostumeSourceIndex(row, portraitInfo) {
+    return row.portrait_frame_offset + (portraitInfo.sourceIndex % row.portrait_frame_count);
+  }
+
+  function idDecoPortraitDrawPoint(gameDrawPoint) {
+    return [
+      gameDrawPoint[0] + ID_DECO_PORTRAIT_OFFSET[0],
+      gameDrawPoint[1] + ID_DECO_PORTRAIT_OFFSET[1],
+    ];
+  }
+
   async function prepareParts(row) {
     return Promise.all((row.parts || row.resource_entries || []).map(async part => {
       const descriptor = typeof part === "string" ? {resource:part, adjust:false} : part;
@@ -423,24 +696,105 @@
     }));
   }
 
+  async function prepareMovementFieldObjects() {
+    const spec = RESOURCE_MANIFEST.defaults.field_objects;
+    const [bomb, fire] = await Promise.all([
+      resourceStore.get(spec.archive, spec.bomb_resource),
+      resourceStore.get(spec.archive, spec.fire_resource),
+    ]);
+    return {spec, bomb, fire};
+  }
+
   function drawCenteredIn(context, decoded, sourceIndex, left, top, width, height) {
     const frame = decoded.frames[sourceIndex % decoded.frames.length];
-    context.drawImage(frame.canvas, left + Math.floor((width - decoded.maxWidth) / 2), top + Math.floor((height - decoded.maxHeight) / 2));
+    const drawLeft = left + Math.floor((width - decoded.maxWidth) / 2);
+    const drawTop = top + Math.floor((height - decoded.maxHeight) / 2);
+    context.drawImage(frame.canvas, drawLeft, drawTop);
+    return {frame, left:drawLeft, top:drawTop};
   }
 
   function drawCentered(context, decoded, sourceIndex) { drawCenteredIn(context, decoded, sourceIndex, 0, 0, SLOT_SIZE, SLOT_SIZE); }
 
-  function drawPositioned(context, part, sourceIndex, colorKey = "red", offset = [0, 0]) {
+  function drawAnchoredCenteredIn(context, decoded, sourceIndex, left, top, width, height) {
+    if (!decoded._anchorBounds) {
+      const frameBounds = decoded.frames.map(frame => ({
+        left:-frame.record.anchorX,
+        top:-frame.record.anchorY,
+        right:frame.canvas.width - frame.record.anchorX,
+        bottom:frame.canvas.height - frame.record.anchorY,
+      }));
+      const bounds = {
+        left:Math.min(...frameBounds.map(value => value.left)),
+        top:Math.min(...frameBounds.map(value => value.top)),
+        right:Math.max(...frameBounds.map(value => value.right)),
+        bottom:Math.max(...frameBounds.map(value => value.bottom)),
+      };
+      decoded._anchorBounds = {...bounds, width:bounds.right - bounds.left, height:bounds.bottom - bounds.top};
+    }
+    const frame = decoded.frames[sourceIndex % decoded.frames.length], bounds = decoded._anchorBounds;
+    const drawPoint = [
+      left + Math.floor((width - bounds.width) / 2) - bounds.left,
+      top + Math.floor((height - bounds.height) / 2) - bounds.top,
+    ];
+    context.drawImage(frame.canvas, drawPoint[0] - frame.record.anchorX, drawPoint[1] - frame.record.anchorY);
+    return {frame, drawPoint};
+  }
+
+  function drawPositioned(context, part, sourceIndex, colorKey = "red", drawPoint = CHARACTER_DRAW_POINT) {
     const frame = part.decoded.frames[sourceIndex % part.decoded.frames.length];
     const record = frame.record;
     const source = part.adjust ? toCanvas(frame.canvas, colorKey) : frame.canvas;
-    context.drawImage(source, CHARACTER_DRAW_POINT[0] - record.anchorX + offset[0], CHARACTER_DRAW_POINT[1] - record.anchorY + offset[1]);
+    context.drawImage(source, drawPoint[0] - record.anchorX, drawPoint[1] - record.anchorY);
   }
 
-  function drawParts(context, parts, sourceIndex, colorKey, variants = null, offset = [0, 0]) {
+  function drawScaledFieldFrame(context, decoded, sourceIndex, drawPoint, renderScale) {
+    const point = drawPoint.map(Math.round);
+    context.save();
+    try {
+      context.translate(point[0], point[1]);
+      context.scale(renderScale, renderScale);
+      context.translate(-point[0], -point[1]);
+      drawPositioned(context, {decoded, adjust:false}, sourceIndex, "red", point);
+    } finally {
+      context.restore();
+    }
+  }
+
+  function drawMovementFieldObjects(context, prepared, now, renderScale) {
+    pruneMovementBombs(now);
+    const {spec, bomb, fire} = prepared;
+    const cellSize = spec.grid_size[0] * renderScale;
+    const duration = spec.fire_duration_ms || FIELD_FIRE_DURATION;
+    const signature = [];
+    for (const placed of movementBombs) {
+      const state = movementBombPhase(placed, now, FIELD_BOMB_FUSE, duration);
+      if (state.state === "bomb") {
+        const sourceIndex = Math.floor(Math.max(0, state.elapsed) / FIELD_BOMB_FRAME_DURATION) % spec.bomb_frame_count;
+        drawScaledFieldFrame(context, bomb, sourceIndex, movementCellDrawPoint(placed, spec.grid_size, renderScale, spec.grid_draw_origin), renderScale);
+        signature.push(`b${placed.id}:${sourceIndex}`);
+        continue;
+      }
+      if (state.state !== "fire") continue;
+      const cells = movementFireCells(placed, FIELD_FIRE_POWER);
+      for (const direction of spec.fire_direction_order) {
+        const arm = cells.filter(cell => cell.direction === direction && movementCellVisible(cell, cellSize));
+        const visibleMaxDistance = Math.max(0, ...arm.map(cell => cell.distance));
+        for (const cell of arm) {
+          const sourceIndex = movementFireFrame(cell, visibleMaxDistance, state.elapsed, spec);
+          if (sourceIndex != null) drawScaledFieldFrame(context, fire, sourceIndex, movementCellDrawPoint(cell, spec.grid_size, renderScale, spec.grid_draw_origin), renderScale);
+        }
+      }
+      const centerIndex = movementFireFrame({direction:"center", distance:0}, 0, state.elapsed, spec);
+      if (centerIndex != null) drawScaledFieldFrame(context, fire, centerIndex, movementCellDrawPoint(placed, spec.grid_size, renderScale, spec.grid_draw_origin), renderScale);
+      signature.push(`f${placed.id}:${Math.floor(state.elapsed / (spec.fire_tick_ms || FIELD_FIRE_TICK))}`);
+    }
+    return signature.join(",");
+  }
+
+  function drawParts(context, parts, sourceIndex, colorKey, variants = null, drawPoint = CHARACTER_DRAW_POINT) {
     for (const part of parts) {
       if (variants && !variants.has(part.variant)) continue;
-      drawPositioned(context, part, sourceIndex, colorKey, offset);
+      drawPositioned(context, part, sourceIndex, colorKey, drawPoint);
     }
   }
 
@@ -478,9 +832,66 @@
     return {spec, parts:await prepareParts(spec)};
   }
 
-  function drawDefaultHeadband(context, prepared, sourceIndex, colorKey) {
+  async function prepareMovementDefaultHeadband(character, costumeRows) {
+    if (!shouldShowDefaultHeadband(character, costumeRows)) return null;
+    const spec = defaultHeadbandSpec(character);
+    return {spec, parts:await prepareParts({archive:spec.archive, parts:spec.movement_parts})};
+  }
+
+  function drawDefaultHeadband(context, prepared, sourceIndex, colorKey, drawPoint = CHARACTER_DRAW_POINT, portrait = false) {
     if (!prepared) return;
-    drawParts(context, prepared.parts, sourceIndex % prepared.spec.idle_frame_count, colorKey);
+    const frame = portrait
+      ? prepared.spec.portrait_frame_offset + (sourceIndex % 2)
+      : sourceIndex % prepared.spec.idle_frame_count;
+    drawParts(context, prepared.parts, frame, colorKey, null, drawPoint);
+  }
+
+  function drawMovementDefaultHeadband(context, prepared, direction, sourceIndex, colorKey, drawPoint) {
+    if (!prepared) return;
+    const frame = prepared.spec.movement_frame_offsets[direction] + sourceIndex;
+    drawParts(context, prepared.parts, frame, colorKey, null, drawPoint);
+  }
+
+  function preparedPartsBounds(partGroups) {
+    const bounds = {left:0, top:0, right:0, bottom:0};
+    for (const parts of partGroups) for (const part of parts) for (const frame of part.decoded.frames) {
+      bounds.left = Math.min(bounds.left, -frame.record.anchorX);
+      bounds.top = Math.min(bounds.top, -frame.record.anchorY);
+      bounds.right = Math.max(bounds.right, frame.canvas.width - frame.record.anchorX);
+      bounds.bottom = Math.max(bounds.bottom, frame.canvas.height - frame.record.anchorY);
+    }
+    return bounds;
+  }
+
+  async function prepareMovementCostume(row) {
+    if (!row) return null;
+    if (row.sync_character) {
+      return {row, parts:await prepareParts({archive:row.archive, parts:row.movement_parts}), directions:{}};
+    }
+    const directions = {};
+    await Promise.all(movementDirections.map(async direction => {
+      const spec = row.movement?.[direction];
+      if (spec) directions[direction] = {spec, parts:await prepareParts({archive:row.archive, parts:spec.parts})};
+    }));
+    return {row, parts:await prepareParts(row), directions};
+  }
+
+  function movementCostumeInfo(prepared, direction, characterInfo, elapsed) {
+    const row = prepared.row;
+    if (row.sync_character) {
+      return {
+        parts:prepared.parts,
+        sourceIndex:row.movement_frame_offsets[direction] + characterInfo.sourceIndex,
+        renderPlane:row.render_plane,
+      };
+    }
+    const directional = prepared.directions[direction];
+    if (directional) {
+      const info = sequenceInfo(directional.spec, elapsed);
+      return {parts:directional.parts, sourceIndex:info.sourceIndex, renderPlane:directional.spec.render_plane};
+    }
+    const info = costumeFrameInfo(row, null, elapsed);
+    return {parts:prepared.parts, sourceIndex:info.sourceIndex, renderPlane:row.render_plane};
   }
 
   async function prepareDefaultBackground() {
@@ -495,6 +906,31 @@
     const logical = document.createElement("canvas"); logical.width = spec.logical_size[0]; logical.height = spec.logical_size[1];
     logical.getContext("2d").drawImage(decoded.frames[spec.frame].canvas, spec.resource_origin[0], spec.resource_origin[1]);
     return {spec, logical};
+  }
+
+  async function applyMovementFieldTiles() {
+    const spec = RESOURCE_MANIFEST.defaults.field_tiles;
+    const [vertical, horizontal] = await Promise.all([
+      resourceStore.get(spec.archive, spec.vertical_resource),
+      resourceStore.get(spec.archive, spec.horizontal_resource),
+    ]);
+    const [tileWidth, tileHeight] = spec.tile_size;
+    const pattern = document.createElement("canvas");
+    pattern.width = spec.pattern_size[0];
+    pattern.height = spec.pattern_size[1];
+    const context = pattern.getContext("2d");
+    context.imageSmoothingEnabled = false;
+    const verticalTile = vertical.frames[spec.frame].canvas;
+    const horizontalTile = horizontal.frames[spec.frame].canvas;
+    context.drawImage(verticalTile, 0, 0, tileWidth, tileHeight);
+    context.drawImage(horizontalTile, tileWidth, 0, tileWidth, tileHeight);
+    context.drawImage(horizontalTile, 0, tileHeight, tileWidth, tileHeight);
+    context.drawImage(verticalTile, tileWidth, tileHeight, tileWidth, tileHeight);
+    const wrapper = $(".movement-canvas-wrap");
+    wrapper.style.backgroundImage = `url("${pattern.toDataURL("image/png")}")`;
+    wrapper.dataset.tileResources = `${spec.vertical_resource}|${spec.horizontal_resource}`;
+    wrapper.dataset.tilePatternReady = "true";
+    updateMovementFieldTileScale();
   }
 
   function drawDefaultBackground(context, prepared) {
@@ -543,6 +979,54 @@
     };
   }
 
+  async function createPortraitRenderer() {
+    const character = selectedCharacter();
+    if (!character) return null;
+    const costumeRows = Object.fromEntries(costumeCategories.map(key => [key, selectedCostume(key)]));
+    const portraitRows = Object.fromEntries(costumeCategories.map(key => {
+      const row = costumeRows[key];
+      return [key, row?.portrait_supported ? row : null];
+    }));
+    const [characterParts, defaultHeadband, ...loaded] = await Promise.all([
+      prepareParts({...character, parts:character.portrait_parts}),
+      prepareDefaultHeadband(character, costumeRows),
+      ...costumeCategories.map(key => portraitRows[key] ? prepareParts(portraitRows[key]) : Promise.resolve([])),
+    ]);
+    const costumeParts = Object.fromEntries(costumeCategories.map((key, index) => [key, loaded[index]]));
+    const timelineRow = portraitTimelineRow(character), color = selectedColor();
+    const drawCostume = (context, key, portraitInfo, drawPoint) => {
+      const row = portraitRows[key];
+      if (!row) return "-";
+      const sourceIndex = portraitCostumeSourceIndex(row, portraitInfo);
+      drawParts(context, costumeParts[key], sourceIndex, color, null, drawPoint);
+      return String(sourceIndex);
+    };
+    return {
+      timelineRows:[timelineRow],
+      draw(context, elapsed, drawPoint) {
+        const portraitInfo = sequenceInfo(timelineRow, elapsed), signature = [];
+        for (const key of costumeCategories) {
+          if (portraitRows[key]?.render_plane === "back") signature.push(`${key}:${drawCostume(context, key, portraitInfo, drawPoint)}`);
+        }
+        const baseVariants = new Set(portraitRows.outfit ? ["A"] : ["A", "B"]);
+        drawParts(context, characterParts, portraitInfo.sourceIndex, color, baseVariants, drawPoint);
+        if (portraitRows.outfit && portraitRows.outfit.render_plane !== "back") signature.push(`outfit:${drawCostume(context, "outfit", portraitInfo, drawPoint)}`);
+        if (portraitRows.expression && portraitRows.expression.render_plane !== "back") signature.push(`expression:${drawCostume(context, "expression", portraitInfo, drawPoint)}`);
+        if (!portraitRows.hair) drawParts(context, characterParts, portraitInfo.sourceIndex, color, new Set(["C"]), drawPoint);
+        else if (portraitRows.hair.render_plane !== "back") signature.push(`hair:${drawCostume(context, "hair", portraitInfo, drawPoint)}`);
+        if (defaultHeadband) {
+          drawDefaultHeadband(context, defaultHeadband, portraitInfo.sourceIndex, color, drawPoint, true);
+          signature.push(`default-headband:${defaultHeadband.spec.portrait_frame_offset + portraitInfo.sourceIndex}`);
+        }
+        for (const key of ["head", "mask", "accessory", "wing", "special"]) {
+          if (portraitRows[key] && portraitRows[key].render_plane !== "back") signature.push(`${key}:${drawCostume(context, key, portraitInfo, drawPoint)}`);
+        }
+        signature.push(`portrait:${portraitInfo.sourceIndex}`);
+        return signature.join("|");
+      },
+    };
+  }
+
   function idDecoTimelineRows(row) {
     return [
       {frame_count:row.lobby_frame_count, frame_durations:row.lobby_frame_durations},
@@ -550,20 +1034,21 @@
     ];
   }
 
-  async function createIdDecoRenderer(row) {
+  async function createIdDecoRenderer(row, portraitRenderer = null) {
     const [lobby, game] = await Promise.all([
       resourceStore.get(row.archive, row.lobby_resource),
       resourceStore.get(row.archive, row.game_resource),
     ]);
     const [lobbyTimeline, gameTimeline] = idDecoTimelineRows(row);
     return {
-      timelineRows:[lobbyTimeline, gameTimeline],
+      timelineRows:[lobbyTimeline, gameTimeline, ...(portraitRenderer?.timelineRows || [])],
       draw(context, elapsed) {
         const lobbyInfo = sequenceInfo(lobbyTimeline, elapsed), gameInfo = sequenceInfo(gameTimeline, elapsed);
         context.clearRect(0, 0, ID_DECO_WIDTH, ID_DECO_HEIGHT);
-        drawCenteredIn(context, lobby, lobbyInfo.sourceIndex, 0, 0, ID_DECO_CELL_WIDTH, ID_DECO_HEIGHT);
-        drawCenteredIn(context, game, gameInfo.sourceIndex, ID_DECO_CELL_WIDTH + ID_DECO_GAP, 0, ID_DECO_CELL_WIDTH, ID_DECO_HEIGHT);
-        return `${lobbyInfo.sourceIndex}:${gameInfo.sourceIndex}`;
+        drawAnchoredCenteredIn(context, lobby, lobbyInfo.sourceIndex, 0, 0, ID_DECO_CELL_WIDTH, ID_DECO_HEIGHT);
+        const gamePlacement = drawAnchoredCenteredIn(context, game, gameInfo.sourceIndex, ID_DECO_CELL_WIDTH + ID_DECO_GAP, 0, ID_DECO_CELL_WIDTH, ID_DECO_HEIGHT);
+        const portraitSignature = portraitRenderer?.draw(context, elapsed, idDecoPortraitDrawPoint(gamePlacement.drawPoint)) || "";
+        return `${lobbyInfo.sourceIndex}:${gameInfo.sourceIndex}:${portraitSignature}`;
       },
     };
   }
@@ -581,6 +1066,7 @@
       if (composerAnimation) drawAnimationItem(composerAnimation, now);
       if (idDecoAnimation) drawAnimationItem(idDecoAnimation, now);
     }
+    if (movementAnimation && category === "tryon") drawMovementAnimation(movementAnimation, now);
     requestAnimationFrame(animationLoop);
   }
 
@@ -593,6 +1079,37 @@
       const {width, height} = item.context.canvas;
       item.context.clearRect(0, 0, width, height);
       item.context.fillStyle = "#842f38"; item.context.font = "10px sans-serif"; item.context.fillText("렌더 오류", 8, 18);
+      console.error(error);
+    }
+  }
+
+  function drawMovementAnimation(item, now) {
+    try {
+      const delta = Math.min(50, Math.max(0, now - item.lastTick));
+      item.lastTick = now;
+      const renderScale = movementCharacterScale();
+      updateMovementFieldTileScale(renderScale);
+      pruneMovementBombs(now);
+      const vector = movementVector(movementState.direction, movementState.moving);
+      const candidate = movementState.moving ? {
+        x:movementState.x + vector.x * MOVEMENT_SPEED * delta / 1000,
+        y:movementState.y + vector.y * MOVEMENT_SPEED * delta / 1000,
+      } : movementState;
+      const clamped = clampMovementPosition(candidate, item.renderer.bounds, MOVEMENT_WIDTH, MOVEMENT_HEIGHT, renderScale);
+      const fieldSpec = RESOURCE_MANIFEST.defaults.field_objects;
+      const cellSize = fieldSpec.grid_size[0] * renderScale;
+      const cellAnchor = fieldSpec.grid_draw_origin.map(value => value * renderScale);
+      const resolved = resolveMovementBombPosition(movementBombs, movementState, clamped, now, cellSize, FIELD_BOMB_FUSE, cellAnchor);
+      movementState.x = resolved.x; movementState.y = resolved.y;
+      releaseMovementBombPassThrough(movementBombs, movementState, now, cellSize, FIELD_BOMB_FUSE, cellAnchor);
+      item.signature = item.renderer.draw(item.context, now - item.started, {
+        ...movementState,
+        now,
+        renderScale,
+        walkElapsed:movementState.moving ? now - movementState.walkStarted : 0,
+      });
+    } catch (error) {
+      item.context.clearRect(0, 0, MOVEMENT_WIDTH, MOVEMENT_HEIGHT);
       console.error(error);
     }
   }
@@ -783,16 +1300,78 @@
     };
   }
 
+  async function createMovementRenderer() {
+    const character = selectedCharacter();
+    if (!character) return null;
+    const costumeRows = Object.fromEntries(costumeCategories.map(key => [key, selectedCostume(key)]));
+    const [characterEntries, defaultHeadband, fieldObjects, ...loadedCostumes] = await Promise.all([
+      Promise.all(movementDirections.map(async direction => [
+        direction,
+        await prepareParts({archive:character.archive, parts:character.movement[direction].parts}),
+      ])),
+      prepareMovementDefaultHeadband(character, costumeRows),
+      prepareMovementFieldObjects(),
+      ...costumeCategories.map(key => prepareMovementCostume(costumeRows[key])),
+    ]);
+    const characterParts = Object.fromEntries(characterEntries);
+    const preparedCostumes = Object.fromEntries(costumeCategories.map((key, index) => [key, loadedCostumes[index]]));
+    const color = selectedColor();
+    const bounds = preparedPartsBounds(Object.values(characterParts));
+
+    return {
+      bounds,
+      draw(context, elapsed, state) {
+        context.clearRect(0, 0, MOVEMENT_WIDTH, MOVEMENT_HEIGHT);
+        context.imageSmoothingEnabled = false;
+        const direction = state.direction;
+        const action = character.movement[direction];
+        const characterInfo = state.moving ? sequenceInfo(action, state.walkElapsed) : {sourceIndex:0, sequenceIndex:0};
+        const drawPoint = [Math.round(state.x), Math.round(state.y)];
+        const renderScale = state.renderScale || 1;
+        const fieldSignature = drawMovementFieldObjects(context, fieldObjects, state.now ?? performance.now(), renderScale);
+        const costumeInfo = Object.fromEntries(costumeCategories.map(key => [
+          key,
+          preparedCostumes[key] ? movementCostumeInfo(preparedCostumes[key], direction, characterInfo, elapsed) : null,
+        ]));
+        const drawCostume = key => {
+          const info = costumeInfo[key];
+          if (info) drawParts(context, info.parts, info.sourceIndex, color, null, drawPoint);
+        };
+
+        context.save();
+        try {
+          context.translate(drawPoint[0], drawPoint[1]);
+          context.scale(renderScale, renderScale);
+          context.translate(-drawPoint[0], -drawPoint[1]);
+          for (const key of costumeCategories) if (costumeInfo[key]?.renderPlane === "back") drawCostume(key);
+          const baseVariants = new Set(costumeRows.outfit ? ["A"] : ["A", "B"]);
+          drawParts(context, characterParts[direction], characterInfo.sourceIndex, color, baseVariants, drawPoint);
+          if (costumeInfo.outfit?.renderPlane !== "back") drawCostume("outfit");
+          if (costumeInfo.expression?.renderPlane !== "back") drawCostume("expression");
+          if (!costumeRows.hair) drawParts(context, characterParts[direction], characterInfo.sourceIndex, color, new Set(["C"]), drawPoint);
+          else if (costumeInfo.hair?.renderPlane !== "back") drawCostume("hair");
+          drawMovementDefaultHeadband(context, defaultHeadband, direction, characterInfo.sourceIndex, color, drawPoint);
+          for (const key of ["head", "mask", "accessory", "wing", "special"]) if (costumeInfo[key]?.renderPlane !== "back") drawCostume(key);
+        } finally {
+          context.restore();
+        }
+        return `${direction}:${characterInfo.sourceIndex}:${drawPoint.join(",")}:${renderScale.toFixed(3)}:${fieldSignature}`;
+      },
+    };
+  }
+
   let composerBuild = 0;
   async function rebuildComposer() {
     if (!resourceStore) return;
     const generation = ++composerBuild;
     try {
       const idDecoration = selectedIdDecoration();
-      const [renderer, idRenderer] = await Promise.all([
+      const [renderer, portraitRenderer, movementRenderer] = await Promise.all([
         createCompositionRenderer(),
-        idDecoration ? createIdDecoRenderer(idDecoration) : Promise.resolve(null),
+        idDecoration ? createPortraitRenderer() : Promise.resolve(null),
+        createMovementRenderer(),
       ]);
+      const idRenderer = idDecoration ? await createIdDecoRenderer(idDecoration, portraitRenderer) : null;
       if (generation !== composerBuild) return;
       composerAnimation = {renderer, context:$("#stage-canvas").getContext("2d"), started:performance.now(), signature:""};
       drawAnimationItem(composerAnimation, performance.now());
@@ -800,6 +1379,12 @@
       idDecoAnimation = idRenderer ? {renderer:idRenderer, context:idContext, started:performance.now(), signature:""} : null;
       if (idDecoAnimation) drawAnimationItem(idDecoAnimation, performance.now());
       else idContext.clearRect(0, 0, ID_DECO_WIDTH, ID_DECO_HEIGHT);
+      const movementContext = $("#movement-canvas").getContext("2d"), movementNow = performance.now();
+      movementAnimation = movementRenderer ? {renderer:movementRenderer, context:movementContext, started:movementNow, lastTick:movementNow, signature:""} : null;
+      $("#movement-empty").hidden = Boolean(movementAnimation);
+      updateMovementFieldTileScale(movementCharacterScale());
+      if (movementAnimation) drawMovementAnimation(movementAnimation, movementNow);
+      else { movementContext.clearRect(0, 0, MOVEMENT_WIDTH, MOVEMENT_HEIGHT); resetMovementBombs(); }
     } catch (error) { console.error(error); }
   }
 
@@ -821,7 +1406,7 @@
     characterFilter.innerHTML = `<option value="">전체 캐릭터</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
     $("#character-pickers").innerHTML = `<div class="picker"><label for="pick-character">캐릭터</label><select id="pick-character"><option value="">착용 안 함</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div><div class="picker"><label for="pick-character-color">캐릭터 렌더색</label><div class="color-choice"><select id="pick-character-color">${characterColors.map(([value, name]) => `<option value="${value}" ${value === "red" ? "selected" : ""}>${name}</option>`).join("")}</select><span class="color-swatch" id="character-color-swatch" aria-hidden="true"></span></div></div>`;
     $("#costume-pickers").innerHTML = costumeCategories.map(key => `<div class="picker"><label for="pick-costume-${key}">${costumeLabels[key]}</label><select id="pick-costume-${key}" data-costume="${key}"></select></div>`).join("");
-    $("#pickers").innerHTML = baseCategories.map(key => `<div class="picker"><label for="pick-${key}">${baseLabels[key]}</label><select id="pick-${key}" data-base="${key}"><option value="">${key === "background" ? "기본 배경" : key === "flag" ? "기본 깃발" : "착용 안 함"}</option>${(catalogByCategory.get(key) || []).map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div>`).join("") + `<button class="render-button" id="render" type="button">GIF</button>`;
+    $("#pickers").innerHTML = baseCategories.map(key => `<div class="picker"><label for="pick-${key}">${baseLabels[key]}</label><select id="pick-${key}" data-base="${key}"><option value="">${key === "background" ? "기본 배경" : key === "flag" ? "기본 깃발" : "착용 안 함"}</option>${(catalogByCategory.get(key) || []).map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div>`).join("");
     $("#pick-id-deco").innerHTML = `<option value="">착용 안 함</option>${idDecorations.map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
     $("#character-color-swatch").style.background = colorSwatch("red");
     refreshCostumePickers();
@@ -836,6 +1421,11 @@
       $("#render-id-deco").disabled = !selectedIdDecoration();
       rebuildComposer();
     });
+    $("#movement-scale-control").addEventListener("click", event => {
+      const button = event.target.closest("[data-movement-scale]");
+      if (button) setMovementRenderScale(button.dataset.movementScale);
+    });
+    setMovementRenderScale(DEFAULT_MOVEMENT_RENDER_SCALE);
     $("#render").addEventListener("click", renderCompositionGif);
     $("#render-id-deco").addEventListener("click", renderIdDecoGif);
   }
@@ -907,7 +1497,7 @@
   }
 
   async function renderCompositionGif() {
-    const button = $("#render"); button.disabled = true; button.textContent = "만드는 중…";
+    const button = $("#render"); button.disabled = true; button.textContent = "…";
     try {
       const renderer = await createCompositionRenderer(), timeline = timelineFor(renderer.timelineRows);
       const canvas = document.createElement("canvas"); canvas.width = SLOT_SIZE; canvas.height = SLOT_SIZE;
@@ -915,7 +1505,7 @@
       for (const segment of timeline) { renderer.draw(context, segment.start); frames.push(context.getImageData(0, 0, SLOT_SIZE, SLOT_SIZE)); durations.push(segment.duration); }
       const url = URL.createObjectURL(makeGif(frames, durations, SLOT_SIZE, SLOT_SIZE)), anchor = document.createElement("a");
       anchor.download = `poptag-${frames.length}프레임-${Date.now()}.gif`; anchor.href = url; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-      button.textContent = `${frames.length}프레임 저장 완료`;
+      button.textContent = "완료";
     } catch (error) { alert(`GIF 저장에 실패했습니다. ${error.message}`); }
     finally { setTimeout(() => { button.disabled = false; button.textContent = "GIF"; }, 900); }
   }
@@ -923,9 +1513,10 @@
   async function renderIdDecoGif() {
     const row = selectedIdDecoration(), button = $("#render-id-deco");
     if (!row) return;
-    button.disabled = true; button.textContent = "만드는 중…";
+    button.disabled = true; button.textContent = "…";
     try {
-      const renderer = await createIdDecoRenderer(row), timeline = timelineFor(renderer.timelineRows);
+      const portraitRenderer = await createPortraitRenderer();
+      const renderer = await createIdDecoRenderer(row, portraitRenderer), timeline = timelineFor(renderer.timelineRows);
       const canvas = document.createElement("canvas"); canvas.width = ID_DECO_WIDTH; canvas.height = ID_DECO_HEIGHT;
       const context = canvas.getContext("2d", {willReadFrequently:true}), frames = [], durations = [];
       for (const segment of timeline) {
@@ -934,9 +1525,39 @@
       }
       const url = URL.createObjectURL(makeGif(frames, durations, ID_DECO_WIDTH, ID_DECO_HEIGHT)), anchor = document.createElement("a");
       anchor.download = `poptag-id-${String(row.code).padStart(4, "0")}-${frames.length}프레임.gif`; anchor.href = url; anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000); button.textContent = `${frames.length}프레임 저장 완료`;
+      setTimeout(() => URL.revokeObjectURL(url), 1000); button.textContent = "완료";
     } catch (error) { alert(`GIF 저장에 실패했습니다. ${error.message}`); }
     finally { setTimeout(() => { button.disabled = !selectedIdDecoration(); button.textContent = "GIF"; }, 900); }
+  }
+
+  function clearMovementInput() {
+    heldMovementDirections.clear();
+    movementDirectionOrder = [];
+    movementState.moving = false;
+  }
+
+  function setMovementInput(direction, pressed, now = performance.now()) {
+    if (pressed) {
+      if (!heldMovementDirections.has(direction)) {
+        heldMovementDirections.add(direction);
+        movementDirectionOrder = movementDirectionOrder.filter(value => value !== direction);
+        movementDirectionOrder.push(direction);
+        if (!movementState.moving || movementState.direction !== direction) movementState.walkStarted = now;
+      }
+      movementState.direction = direction;
+      movementState.moving = true;
+      return;
+    }
+    heldMovementDirections.delete(direction);
+    movementDirectionOrder = movementDirectionOrder.filter(value => value !== direction);
+    const next = movementDirectionOrder.at(-1);
+    if (next) {
+      if (movementState.direction !== next) movementState.walkStarted = now;
+      movementState.direction = next;
+      movementState.moving = true;
+    } else {
+      movementState.moving = false;
+    }
   }
 
   function showCurrent() {
@@ -945,7 +1566,11 @@
     grid.style.display = composing ? "none" : "grid";
     $("#composer").style.display = composing ? "grid" : "none";
     $("#count").textContent = composing ? "" : $("#count").textContent;
-    if (composing) clearGridAnimations(); else if (resourceStore) renderGrid();
+    if (composing) clearGridAnimations();
+    else {
+      clearMovementInput();
+      if (resourceStore) renderGrid();
+    }
   }
 
   async function chooseDirectory() {
@@ -971,7 +1596,32 @@
   $("#close").addEventListener("click", () => viewer.close());
   viewer.addEventListener("close", () => { modalAnimation = null; });
   viewer.addEventListener("click", event => { if (event.target === viewer) viewer.close(); });
+  $("#movement-canvas").addEventListener("pointerdown", event => event.currentTarget.focus());
+  document.addEventListener("keydown", event => {
+    const direction = movementDirectionByKey.get(event.key);
+    const placeBomb = event.code === "Space";
+    const target = event.target;
+    if ((!direction && !placeBomb) || category !== "tryon" || viewer.open || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (target instanceof Element && target.closest("input,select,textarea,button,[contenteditable='true']")) return;
+    if (placeBomb) {
+      if (!event.repeat) placeMovementBomb();
+      event.preventDefault();
+      return;
+    }
+    setMovementInput(direction, true);
+    event.preventDefault();
+  });
+  document.addEventListener("keyup", event => {
+    const direction = movementDirectionByKey.get(event.key);
+    if (!direction || !heldMovementDirections.has(direction)) return;
+    setMovementInput(direction, false);
+    event.preventDefault();
+  });
+  window.addEventListener("blur", clearMovementInput);
+  window.addEventListener("resize", () => {
+    if (category === "tryon") updateMovementFieldTileScale(movementCharacterScale());
+  });
 
-  setupComposer(); renderTabs(); requestAnimationFrame(animationLoop);
+  setupComposer(); updateMovementBombStatus(); renderTabs(); requestAnimationFrame(animationLoop);
   restoreDirectoryHandle().then(async handle => { if (handle) await connectFiles(await filesFromDirectory(handle), handle); }).catch(() => {});
 })();
