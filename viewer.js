@@ -431,24 +431,16 @@
     }
   }
 
-  function characterPartOffset(characterParts, sourceIndex, preferredVariant) {
-    const candidates = characterParts.filter(part => part.variant === preferredVariant).sort((left, right) => Number(left.adjust) - Number(right.adjust));
-    const tracker = candidates.find(part => part.decoded.frames[0] && part.decoded.frames[sourceIndex % part.decoded.frames.length]);
-    if (!tracker) return preferredVariant === "A" ? [0, 0] : characterPartOffset(characterParts, sourceIndex, "A");
-    const baseFrame = tracker.decoded.frames[0], currentFrame = tracker.decoded.frames[sourceIndex % tracker.decoded.frames.length];
-    return [
-      baseFrame.record.originX - currentFrame.record.originX,
-      baseFrame.record.originY - currentFrame.record.originY,
-    ];
-  }
-
-  function costumePoseOffset(row, characterParts, sourceIndex) {
-    if (row.pose_frame == null) return [0, 0];
-    // AvatarDeco face pieces use the client's A (head/face) transform, body
-    // pieces use B, while hats deliberately remain on their own fixed track.
-    if (row.category === "head") return [0, 0];
-    const trackingVariant = ["outfit", "accessory"].includes(row.category) ? "B" : "A";
-    return characterPartOffset(characterParts, sourceIndex, trackingVariant);
+  function costumeFrameInfo(row, characterInfo, elapsed) {
+    if (row.sync_character && characterInfo) {
+      // AvatarDeco's _1 display resource carries its own Blink frames 0..2.
+      // Selecting the same source frame as the character preserves every
+      // part's authored position, shape and visibility (including hats).
+      const count = Math.max(1, row.idle_frame_count || 3);
+      return {sourceIndex:characterInfo.sourceIndex % count, sequenceIndex:characterInfo.sequenceIndex};
+    }
+    if (row.pose_frame != null) return {sourceIndex:row.pose_frame, sequenceIndex:0};
+    return sequenceInfo(row, elapsed);
   }
 
   async function prepareDefaultBackground() {
@@ -488,17 +480,16 @@
     const [characterParts, costumeParts] = await Promise.all([prepareParts(character), prepareParts(row)]);
     return {
       draw(context, elapsed) {
-        const characterInfo = sequenceInfo(character, elapsed), costumeInfo = row.pose_frame != null ? {sourceIndex:row.pose_frame, sequenceIndex:0} : row.sync_character ? {sourceIndex:characterInfo.sourceIndex, sequenceIndex:characterInfo.sequenceIndex} : sequenceInfo(row, elapsed);
-        const costumeOffset = costumePoseOffset(row, characterParts, characterInfo.sourceIndex);
+        const characterInfo = sequenceInfo(character, elapsed), costumeInfo = costumeFrameInfo(row, characterInfo, elapsed);
         context.clearRect(0, 0, SLOT_SIZE, SLOT_SIZE);
         const hairSelected = row.category === "hair", outfitSelected = row.category === "outfit";
-        if (row.render_plane === "back") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red", null, costumeOffset);
+        if (row.render_plane === "back") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
         const baseVariants = new Set(outfitSelected ? ["A"] : ["A", "B"]);
         drawParts(context, characterParts, characterInfo.sourceIndex, "red", baseVariants);
-        if (row.render_plane === "front" && row.category === "outfit") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red", null, costumeOffset);
-        if (row.render_plane === "front" && row.category === "expression") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red", null, costumeOffset);
+        if (row.render_plane === "front" && row.category === "outfit") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
+        if (row.render_plane === "front" && row.category === "expression") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
         if (!hairSelected) drawParts(context, characterParts, characterInfo.sourceIndex, "red", new Set(["C"]));
-        if (row.render_plane === "front" && !["outfit", "expression"].includes(row.category)) drawParts(context, costumeParts, costumeInfo.sourceIndex, "red", null, costumeOffset);
+        if (row.render_plane === "front" && !["outfit", "expression"].includes(row.category)) drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
         return `${characterInfo.sourceIndex}:${costumeInfo.sourceIndex}`;
       },
     };
@@ -646,9 +637,9 @@
     const color = selectedColor();
     const drawCostume = (context, key, elapsed, characterSource) => {
       const row = costumeRows[key]; if (!row) return "-";
-      const info = row.pose_frame != null ? {sourceIndex:row.pose_frame} : row.sync_character && characterSource != null ? {sourceIndex:characterSource} : sequenceInfo(row, elapsed);
-      const offset = costumePoseOffset(row, characterParts, characterSource ?? 0);
-      drawParts(context, costumeParts[key], info.sourceIndex, color, null, offset); return `${info.sourceIndex}@${offset.join(",")}`;
+      const characterInfo = characterSource == null ? null : {sourceIndex:characterSource, sequenceIndex:0};
+      const info = costumeFrameInfo(row, characterInfo, elapsed);
+      drawParts(context, costumeParts[key], info.sourceIndex, color); return String(info.sourceIndex);
     };
     return {
       timelineRows: [
