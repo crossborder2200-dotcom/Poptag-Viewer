@@ -1,8 +1,10 @@
 const POPTAG_TRANSLATIONS={
   "language.selector":{"KR":"언어 선택","EN":"Language"},
   "folder.select":{"KR":"PopTag 폴더 선택","EN":"Select PopTag Folder"},
+  "folder.preferred_path":{"KR":"기본 경로: C:\\nexon\\poptag","EN":"Preferred path: C:\\nexon\\poptag"},
   "folder.checking":{"KR":"확인 중…","EN":"Checking…"},
   "folder.connected":{"KR":"연결되었습니다.","EN":"Connected."},
+  "folder.not_found":{"KR":"선택한 폴더 안에서 필요한 IDD 파일을 찾지 못했습니다.","EN":"The required IDD files were not found in the selected folder."},
   "nav.dressing_room":{"KR":"드레스룸","EN":"Dressing Room"},
   "action.equip":{"KR":"착용","EN":"Equip"},
   "nav.categories":{"KR":"종류 선택","EN":"Choose a category"},

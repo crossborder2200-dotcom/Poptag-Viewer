@@ -48,6 +48,8 @@
   const MAX_GIF_DURATION = 12000;
   const DEFAULT_CHARACTER_SLOT = 5;
   const CACHE_LIMIT = 192;
+  const RESOURCE_DIRECTORY_SEARCH_DEPTH = 4;
+  const RESOURCE_DIRECTORY_SEARCH_LIMIT = 384;
   const baseLabels = {background:"category.background", flag:"category.flag", prop:"category.prop", effect:"category.effect"};
   const costumeLabels = {expression:"category.expression", hair:"category.hair", head:"category.head", mask:"category.mask", outfit:"category.outfit", accessory:"category.accessory", wing:"category.wing", special:"category.special"};
   const extraLabels = {[ID_DECO_CATEGORY]:"category.id_deco", [BOMB_CATEGORY]:"category.bomb"};
@@ -334,8 +336,28 @@
     return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
   }
 
+  function resourceFilesByName(files) {
+    const expectedNames = new Set(Object.values(RESOURCE_MANIFEST.files).map(file => file.name.toLocaleLowerCase()));
+    const groups = new Map();
+    for (const file of files) {
+      const relativePath = String(file.webkitRelativePath || file.name).replaceAll("\\", "/");
+      const separator = relativePath.lastIndexOf("/");
+      const directory = separator < 0 ? "" : relativePath.slice(0, separator);
+      if (!groups.has(directory)) groups.set(directory, new Map());
+      groups.get(directory).set(file.name.toLocaleLowerCase(), file);
+    }
+    const complete = [...groups].filter(([_directory, entries]) => [...expectedNames].every(name => entries.has(name)));
+    if (!complete.length) return new Map([...files].map(file => [file.name.toLocaleLowerCase(), file]));
+    const score = directory => {
+      const parts = directory.toLocaleLowerCase().split("/").filter(Boolean);
+      return (parts.at(-1) === "poptag" ? 100000 : 0) - parts.length * 100 - directory.length;
+    };
+    complete.sort((left, right) => score(right[0]) - score(left[0]) || left[0].localeCompare(right[0]));
+    return complete[0][1];
+  }
+
   async function validateFiles(files) {
-    const byName = new Map([...files].map(file => [file.name.toLocaleLowerCase(), file]));
+    const byName = resourceFilesByName(files);
     const mapped = new Map();
     for (const [archive, expected] of Object.entries(RESOURCE_MANIFEST.files)) {
       const file = byName.get(expected.name.toLocaleLowerCase());
@@ -374,7 +396,7 @@
     } catch (_error) { /* Persistence is optional. */ }
   }
 
-  async function restoreDirectoryHandle() {
+  async function loadSavedDirectoryHandle() {
     try {
       const db = await openHandleDb();
       const handle = await new Promise((resolve, reject) => {
@@ -382,15 +404,40 @@
         request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
       });
       db.close();
-      if (!handle || (await handle.queryPermission({mode:"read"})) !== "granted") return null;
       return handle;
     } catch (_error) { return null; }
   }
 
-  async function filesFromDirectory(handle) {
-    const files = [];
-    for (const expected of Object.values(RESOURCE_MANIFEST.files)) files.push(await (await handle.getFileHandle(expected.name)).getFile());
-    return files;
+  async function restoreDirectoryHandle() {
+    const handle = await loadSavedDirectoryHandle();
+    if (!handle || (await handle.queryPermission({mode:"read"})) !== "granted") return null;
+    return handle;
+  }
+
+  async function filesFromDirectory(rootHandle) {
+    const expectedNames = new Map(Object.values(RESOURCE_MANIFEST.files).map(file => [file.name.toLocaleLowerCase(), file.name]));
+    const queue = [{handle:rootHandle, depth:0}];
+    let scanned = 0;
+    while (queue.length && scanned < RESOURCE_DIRECTORY_SEARCH_LIMIT) {
+      const current = queue.shift();
+      scanned++;
+      const found = new Map(), directories = [];
+      for await (const entry of current.handle.values()) {
+        if (entry.kind === "file" && expectedNames.has(entry.name.toLocaleLowerCase())) found.set(entry.name.toLocaleLowerCase(), entry);
+        else if (entry.kind === "directory" && current.depth < RESOURCE_DIRECTORY_SEARCH_DEPTH) directories.push(entry);
+      }
+      if ([...expectedNames].every(([name]) => found.has(name))) {
+        const files = [];
+        for (const [name] of expectedNames) files.push(await found.get(name).getFile());
+        return {files, handle:current.handle};
+      }
+      directories.sort((left, right) => {
+        const priority = entry => entry.name.toLocaleLowerCase() === "poptag" ? 0 : entry.name.toLocaleLowerCase().includes("poptag") ? 1 : 2;
+        return priority(left) - priority(right) || left.name.localeCompare(right.name);
+      });
+      for (const handle of directories) queue.push({handle, depth:current.depth + 1});
+    }
+    throw new Error(t("folder.not_found"));
   }
 
   function gateStatus(message, type = "") {
@@ -1781,6 +1828,7 @@
 
   function showCurrent() {
     const composing = category === "tryon";
+    document.body.classList.toggle("dressing-room-active", composing);
     $("#controls").style.display = composing ? "none" : "grid";
     grid.style.display = composing ? "none" : "grid";
     $("#composer").style.display = composing ? "grid" : "none";
@@ -1795,8 +1843,17 @@
   async function chooseDirectory() {
     if (!("showDirectoryPicker" in window)) { $("#idd-files").click(); return; }
     try {
-      const handle = await window.showDirectoryPicker({mode:"read", id:"poptag-resources"});
-      await connectFiles(await filesFromDirectory(handle), handle);
+      const remembered = await loadSavedDirectoryHandle();
+      const options = {mode:"read", id:"poptag-resources"};
+      if (remembered) options.startIn = remembered;
+      let handle;
+      try { handle = await window.showDirectoryPicker(options); }
+      catch (error) {
+        if (!remembered || !new Set(["TypeError", "NotFoundError", "InvalidStateError"]).has(error.name)) throw error;
+        handle = await window.showDirectoryPicker({mode:"read", id:"poptag-resources"});
+      }
+      const located = await filesFromDirectory(handle);
+      await connectFiles(located.files, located.handle);
     } catch (error) {
       if (error.name === "AbortError") return;
       if (error.name === "SecurityError" || error.name === "NotSupportedError") { $("#idd-files").click(); return; }
@@ -1816,7 +1873,13 @@
     const tab = event.target.closest(".tab");
     if (tab) openCategoryList(tab.dataset.category);
   });
-  $("#tryon-tab").addEventListener("click", () => { category = "tryon"; renderTabs(); showCurrent(); rebuildComposer(); });
+  $("#tryon-tab").addEventListener("click", () => {
+    category = "tryon";
+    renderTabs();
+    showCurrent();
+    rebuildComposer();
+    requestAnimationFrame(() => window.scrollTo({top:0, behavior:"smooth"}));
+  });
   grid.addEventListener("click", event => { const card = event.target.closest(".card"); if (card) openRow(lookupRow(card.dataset.key)); });
   $("#try-item").addEventListener("click", tryCurrentItem);
   $("#close").addEventListener("click", () => viewer.close());
@@ -1849,5 +1912,9 @@
   });
 
   applyStaticTranslations(); setupComposer(); updateMovementBombStatus(); renderTabs(); requestAnimationFrame(animationLoop);
-  restoreDirectoryHandle().then(async handle => { if (handle) await connectFiles(await filesFromDirectory(handle), handle); }).catch(() => {});
+  restoreDirectoryHandle().then(async handle => {
+    if (!handle) return;
+    const located = await filesFromDirectory(handle);
+    await connectFiles(located.files, located.handle);
+  }).catch(() => {});
 })();
