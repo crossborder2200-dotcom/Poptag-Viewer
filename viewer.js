@@ -2,10 +2,28 @@
   "use strict";
 
   const $ = selector => document.querySelector(selector);
+  const LANGUAGE_STORAGE_KEY = "poptag-viewer-language";
+  const TRANSLATIONS = typeof POPTAG_TRANSLATIONS === "object" ? POPTAG_TRANSLATIONS : {};
+  let currentLanguage = (() => {
+    try {
+      const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+      if (saved === "KR" || saved === "EN") return saved;
+    } catch (_error) {}
+    const browserLanguage = String(navigator.languages?.[0] || navigator.language || "").toLocaleLowerCase();
+    return browserLanguage === "ko" || browserLanguage.startsWith("ko-") ? "KR" : "EN";
+  })();
+  const t = (key, values = {}) => {
+    const entry = TRANSLATIONS[key];
+    const template = entry?.[currentLanguage] ?? entry?.KR ?? key;
+    return String(template).replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) => Object.hasOwn(values, name) ? values[name] : match);
+  };
+  const numberLocale = () => currentLanguage === "KR" ? "ko-KR" : "en-US";
+  const formatNumber = value => Number(value).toLocaleString(numberLocale());
   const SLOT_SIZE = 148;
   const MOVEMENT_WIDTH = 640;
   const MOVEMENT_HEIGHT = 360;
   const MOVEMENT_SPEED = 216;
+  const MOVEMENT_FACE_FORWARD_DELAY = 3000;
   const MOVEMENT_RENDER_SCALES = new Set([1, 1.5, 2]);
   const DEFAULT_MOVEMENT_RENDER_SCALE = 2;
   const FIELD_BOMB_LIMIT = 6;
@@ -30,10 +48,11 @@
   const MAX_GIF_DURATION = 12000;
   const DEFAULT_CHARACTER_SLOT = 5;
   const CACHE_LIMIT = 192;
-  const baseLabels = {background:"배경", flag:"깃발", prop:"소품", effect:"효과"};
-  const costumeLabels = {expression:"표정", hair:"가발", head:"모자", mask:"가면", outfit:"의상", accessory:"액세서리", wing:"날개", special:"특수효과"};
-  const extraLabels = {[ID_DECO_CATEGORY]:"아이디치장", [BOMB_CATEGORY]:"물풍선"};
+  const baseLabels = {background:"category.background", flag:"category.flag", prop:"category.prop", effect:"category.effect"};
+  const costumeLabels = {expression:"category.expression", hair:"category.hair", head:"category.head", mask:"category.mask", outfit:"category.outfit", accessory:"category.accessory", wing:"category.wing", special:"category.special"};
+  const extraLabels = {[ID_DECO_CATEGORY]:"category.id_deco", [BOMB_CATEGORY]:"category.bomb"};
   const categoryLabels = {...baseLabels, ...costumeLabels, ...extraLabels};
+  const categoryLabel = key => t(categoryLabels[key]);
   const baseCategories = Object.keys(baseLabels);
   const costumeCategories = Object.keys(costumeLabels);
   const movementDirections = ["down", "right", "up", "left"];
@@ -44,10 +63,10 @@
   // decodes every LayerAdjust resource. The three tables live at 0x987250,
   // 0x987298 and 0x9872E0 and are consumed by the HSL routine at 0x787FB0.
   const characterColors = [
-    ["red", "빨강", [0, 0, 0]], ["yellow", "노랑", [45, 5, 0]],
-    ["orange", "주황", [27, 5, 20]], ["green", "초록", [128, 0, -50]],
-    ["cyan", "청록", [-178, 0, -30]], ["blue", "파랑", [-155, 0, 0]],
-    ["purple", "보라", [-77, 0, 0]], ["pink", "분홍", [-40, 0, 0]],
+    ["red", "color.red", [0, 0, 0]], ["yellow", "color.yellow", [45, 5, 0]],
+    ["orange", "color.orange", [27, 5, 20]], ["green", "color.green", [128, 0, -50]],
+    ["cyan", "color.cyan", [-178, 0, -30]], ["blue", "color.blue", [-155, 0, 0]],
+    ["purple", "color.purple", [-77, 0, 0]], ["pink", "color.pink", [-40, 0, 0]],
   ];
   const characterColorAdjustments = new Map(characterColors.map(([key, _name, adjustment]) => [key, adjustment]));
   const catalogByCategory = new Map(baseCategories.map(category => [category, CATALOG.filter(row => row.category === category)]));
@@ -77,18 +96,50 @@
   let lastAnimationTick = 0;
   const heldMovementDirections = new Set();
   let movementDirectionOrder = [];
-  const movementState = {x:MOVEMENT_WIDTH / 2, y:Math.round(MOVEMENT_HEIGHT * .64), direction:"down", moving:false, walkStarted:0};
+  const movementState = {x:MOVEMENT_WIDTH / 2, y:Math.round(MOVEMENT_HEIGHT * .64), direction:"down", moving:false, walkStarted:0, lastDirectionInputAt:performance.now()};
   let movementRenderScale = DEFAULT_MOVEMENT_RENDER_SCALE;
   let movementBombs = [];
   let nextMovementBombId = 1;
   let nextMovementBombState = 0;
 
   const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;"}[character]));
-  const rowLabel = row => row.item_names?.length ? row.item_names.join(" / ") : "이름 없음 · 리소스만 있음";
+  const rowLabel = row => row.item_names?.length ? row.item_names.join(" / ") : t("resource.unnamed");
   const rowResource = row => row.category === ID_DECO_CATEGORY ? `${row.lobby_resource} / ${row.game_resource}` : row.render_resource || row.resource;
   const rowsForCategory = value => baseCategories.includes(value) ? (catalogByCategory.get(value) || []) : costumeCategories.includes(value) ? (costumesByCategory.get(value) || []) : value === ID_DECO_CATEGORY ? idDecorations : value === BOMB_CATEGORY ? bombs : [];
   const rowPrefix = row => ({background:"BG", flag:"FLAG", prop:"PROP", effect:"FX", expression:"FACE", hair:"HAIR", head:"HEAD", mask:"MASK", outfit:"OUTFIT", accessory:"ACC", wing:"WING", special:"SPECIAL", id_deco:"ID", bomb:"BOMB"}[row.category] || row.category.toUpperCase());
   const rowCode = row => `${rowPrefix(row)} ${String(row.code).padStart(4, "0")}`;
+
+  function applyStaticTranslations() {
+    document.documentElement.lang = currentLanguage === "KR" ? "ko" : "en";
+    document.querySelectorAll("[data-i18n]").forEach(element => { element.textContent = t(element.dataset.i18n); });
+    document.querySelectorAll("[data-i18n-placeholder]").forEach(element => { element.placeholder = t(element.dataset.i18nPlaceholder); });
+    document.querySelectorAll("[data-i18n-aria]").forEach(element => { element.setAttribute("aria-label", t(element.dataset.i18nAria)); });
+    document.querySelectorAll("[data-i18n-title]").forEach(element => { element.title = t(element.dataset.i18nTitle); });
+    document.querySelectorAll("[data-language]").forEach(button => {
+      const active = button.dataset.language === currentLanguage;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    const idDecoListButton = $("#id-deco-list-button");
+    if (idDecoListButton) {
+      const title = t("category.list", {category:categoryLabel(ID_DECO_CATEGORY)});
+      idDecoListButton.setAttribute("aria-label", title);
+      idDecoListButton.title = title;
+    }
+  }
+
+  function setLanguage(nextLanguage) {
+    if (!new Set(["KR", "EN"]).has(nextLanguage) || nextLanguage === currentLanguage) return;
+    const pickerState = composerPickerState();
+    currentLanguage = nextLanguage;
+    try { localStorage.setItem(LANGUAGE_STORAGE_KEY, currentLanguage); }
+    catch (_error) { /* Language persistence is optional. */ }
+    applyStaticTranslations();
+    renderComposerPickers(pickerState);
+    renderTabs();
+    updateMovementBombStatus();
+    if (resourceStore && category !== "tryon") renderGrid();
+  }
 
   function u32(view, offset) { return view.getUint32(offset, true); }
   function i32(view, offset) { return view.getInt32(offset, true); }
@@ -106,23 +157,23 @@
     let position = start, pixel = 0;
     while (pixel < pixelCount && position < end) {
       const token = bytes[position++], count = token & 0x3f;
-      if (!count) throw new Error("잘못된 24비트 RLE 토큰입니다.");
+      if (!count) throw new Error(t("decoder.rle24_invalid"));
       if (token & 0x80) {
         pixel += count;
       } else if (token & 0x40) {
-        if (position + 3 > end) throw new Error("24비트 RLE 반복값이 잘렸습니다.");
+        if (position + 3 > end) throw new Error(t("decoder.rle24_repeat_cut"));
         const blue = bytes[position++], green = bytes[position++], red = bytes[position++];
         const rgba = (special && specialColor(red, green, blue)) || [red, green, blue, 255];
         for (let index = 0; index < count && pixel < pixelCount; index++, pixel++) pixels.set(rgba, pixel * 4);
       } else {
-        if (position + count * 3 > end) throw new Error("24비트 RLE 값이 잘렸습니다.");
+        if (position + count * 3 > end) throw new Error(t("decoder.rle24_value_cut"));
         for (let index = 0; index < count; index++, pixel++) {
           const blue = bytes[position++], green = bytes[position++], red = bytes[position++];
           pixels.set((special && specialColor(red, green, blue)) || [red, green, blue, 255], pixel * 4);
         }
       }
     }
-    if (pixel < pixelCount) throw new Error("24비트 RLE 픽셀이 부족합니다.");
+    if (pixel < pixelCount) throw new Error(t("decoder.rle24_pixels_short"));
     return {pixels, position};
   }
 
@@ -131,19 +182,19 @@
     let position = start, pixel = 0;
     while (pixel < pixelCount && position < end) {
       const token = bytes[position++], count = token & 0x3f;
-      if (!count) throw new Error("잘못된 알파 RLE 토큰입니다.");
+      if (!count) throw new Error(t("decoder.alpha_invalid"));
       if (token & 0x80) {
         pixel += count;
       } else if (token & 0x40) {
-        if (position >= end) throw new Error("알파 RLE 반복값이 잘렸습니다.");
+        if (position >= end) throw new Error(t("decoder.alpha_repeat_cut"));
         const alpha = bytes[position++];
         for (let index = 0; index < count && pixel < pixelCount; index++, pixel++) pixels[pixel * 4 + 3] = alpha;
       } else {
-        if (position + count > end) throw new Error("알파 RLE 값이 잘렸습니다.");
+        if (position + count > end) throw new Error(t("decoder.alpha_value_cut"));
         for (let index = 0; index < count; index++, pixel++) pixels[pixel * 4 + 3] = bytes[position++];
       }
     }
-    if (pixel < pixelCount) throw new Error("알파 RLE 픽셀이 부족합니다.");
+    if (pixel < pixelCount) throw new Error(t("decoder.alpha_pixels_short"));
   }
 
   function decodeRle565(bytes, start, end, pixelCount) {
@@ -151,13 +202,13 @@
     let position = start, pixel = 0;
     while (pixel < pixelCount && position < end) {
       const token = bytes[position++], count = token & 0x3f;
-      if (!count) throw new Error("잘못된 565 RLE 토큰입니다.");
+      if (!count) throw new Error(t("decoder.rle565_invalid"));
       if (token & 0x80) {
         pixel += count;
         continue;
       }
       const repeat = Boolean(token & 0x40);
-      if (position + (repeat ? 2 : count * 2) > end) throw new Error("565 RLE 값이 잘렸습니다.");
+      if (position + (repeat ? 2 : count * 2) > end) throw new Error(t("decoder.rle565_value_cut"));
       let repeated = 0;
       if (repeat) { repeated = bytes[position] | (bytes[position + 1] << 8); position += 2; }
       for (let index = 0; index < count; index++, pixel++) {
@@ -170,7 +221,7 @@
         pixels[target + 3] = 255;
       }
     }
-    if (pixel < pixelCount) throw new Error("565 RLE 픽셀이 부족합니다.");
+    if (pixel < pixelCount) throw new Error(t("decoder.rle565_pixels_short"));
     return pixels;
   }
 
@@ -182,7 +233,7 @@
       const hasAlpha = marker === 0xc1;
       if (hasAlpha) {
         const alphaStart = start + u32(view, start + 1);
-        if (alphaStart < start + 5 || alphaStart >= end) throw new Error("알파 스트림 위치가 잘못되었습니다.");
+        if (alphaStart < start + 5 || alphaStart >= end) throw new Error(t("decoder.alpha_stream_invalid"));
         pixels = decodeRle24(bytes, start + 5, alphaStart, width * height, false).pixels;
         decodeAlpha(bytes, alphaStart, end, pixels, width * height);
       } else {
@@ -198,9 +249,9 @@
   }
 
   function decodeLegacy(bytes, view) {
-    if (bytes.length < 24) throw new Error("레거시 리소스가 너무 짧습니다.");
+    if (bytes.length < 24) throw new Error(t("decoder.legacy_short"));
     const frameCount = u32(view, 0), width = u32(view, 8), height = u32(view, 12);
-    if (!frameCount || !width || !height || width * height > 2500000) throw new Error("레거시 리소스 크기가 잘못되었습니다.");
+    if (!frameCount || !width || !height || width * height > 2500000) throw new Error(t("decoder.legacy_size_invalid"));
     const start = 16 + frameCount * 28 + 4;
     const pixels = decodeRle565(bytes, start, bytes.length, width * height);
     const canvas = document.createElement("canvas");
@@ -213,17 +264,17 @@
     const bytes = new Uint8Array(buffer), view = new DataView(buffer);
     if (bytes.length < 32 || u32(view, 4) !== 2) return decodeLegacy(bytes, view);
     const frameCount = u32(view, 0), textureCount = u32(view, 8);
-    if (!frameCount || frameCount >= 4096 || !textureCount || textureCount >= 4096) throw new Error("리소스 헤더가 잘못되었습니다.");
+    if (!frameCount || frameCount >= 4096 || !textureCount || textureCount >= 4096) throw new Error(t("decoder.header_invalid"));
     const sizesOffset = 16, recordsOffset = sizesOffset + textureCount * 8, chunksOffset = recordsOffset + frameCount * 48;
-    if (chunksOffset + 4 > bytes.length) throw new Error("리소스 메타데이터가 잘렸습니다.");
+    if (chunksOffset + 4 > bytes.length) throw new Error(t("decoder.metadata_cut"));
     const dimensions = [];
     for (let index = 0; index < textureCount; index++) dimensions.push([u32(view, sizesOffset + index * 8 + 4), u32(view, sizesOffset + index * 8)]);
     const chunks = [];
     let position = chunksOffset;
     for (let index = 0; index < textureCount; index++) {
-      if (position + 4 > bytes.length) throw new Error("텍스처 길이가 잘렸습니다.");
+      if (position + 4 > bytes.length) throw new Error(t("decoder.texture_length_cut"));
       const length = u32(view, position); position += 4;
-      if (position + length > bytes.length) throw new Error("텍스처 데이터가 잘렸습니다.");
+      if (position + length > bytes.length) throw new Error(t("decoder.texture_data_cut"));
       chunks.push([position, length]); position += length;
     }
     const textureCanvases = new Map(), frames = [], records = [];
@@ -231,13 +282,13 @@
       const offset = recordsOffset + frameIndex * 48;
       const values = Array.from({length:12}, (_, index) => i32(view, offset + index * 4));
       const [originX, originY, _blend, textureIndex, rawLeft, rawTop, rawRight, rawBottom, rawCanvasWidth, rawCanvasHeight, anchorX, anchorY] = values;
-      if (textureIndex < 0 || textureIndex >= textureCount) throw new Error("텍스처 번호가 잘못되었습니다.");
+      if (textureIndex < 0 || textureIndex >= textureCount) throw new Error(t("decoder.texture_index_invalid"));
       const [textureWidth, textureHeight] = dimensions[textureIndex];
       const left = Math.max(0, rawLeft), top = Math.max(0, rawTop), right = Math.min(textureWidth, rawRight), bottom = Math.min(textureHeight, rawBottom);
       const cropWidth = Math.max(0, right - left), cropHeight = Math.max(0, bottom - top);
       const canvasWidth = rawCanvasWidth > 0 && rawCanvasWidth <= 8192 ? rawCanvasWidth : cropWidth;
       const canvasHeight = rawCanvasHeight > 0 && rawCanvasHeight <= 8192 ? rawCanvasHeight : cropHeight;
-      if (!canvasWidth || !canvasHeight || canvasWidth * canvasHeight > 2500000) throw new Error("프레임 크기가 잘못되었습니다.");
+      if (!canvasWidth || !canvasHeight || canvasWidth * canvasHeight > 2500000) throw new Error(t("decoder.frame_size_invalid"));
       const canvas = document.createElement("canvas");
       canvas.width = canvasWidth; canvas.height = canvasHeight;
       if (cropWidth && cropHeight && textureWidth && textureHeight) {
@@ -265,7 +316,7 @@
       }
       const record = RESOURCE_MANIFEST.entries[archive]?.[resource];
       const file = this.files.get(archive);
-      if (!record || !file) throw new Error(`리소스를 찾을 수 없습니다: ${key}`);
+      if (!record || !file) throw new Error(t("resource.not_found", {key}));
       const promise = file.slice(record[0], record[0] + record[1]).arrayBuffer().then(decodeResource);
       this.cache.set(key, promise);
       while (this.cache.size > CACHE_LIMIT) this.cache.delete(this.cache.keys().next().value);
@@ -283,15 +334,15 @@
     const mapped = new Map();
     for (const [archive, expected] of Object.entries(RESOURCE_MANIFEST.files)) {
       const file = byName.get(expected.name.toLocaleLowerCase());
-      if (!file) throw new Error(`${expected.name} 파일이 없습니다.`);
-      if (file.size !== expected.size) throw new Error(`${expected.name} 크기가 현재 카탈로그와 다릅니다.`);
+      if (!file) throw new Error(t("file.missing", {name:expected.name}));
+      if (file.size !== expected.size) throw new Error(t("file.size_mismatch", {name:expected.name}));
       if (crypto?.subtle) {
         const sample = expected.sample_size;
         const [head, tail] = await Promise.all([
           sha256Hex(file.slice(0, Math.min(sample, file.size))),
           sha256Hex(file.slice(Math.max(0, file.size - sample), file.size)),
         ]);
-        if (head !== expected.head_sha256 || tail !== expected.tail_sha256) throw new Error(`${expected.name} 버전이 현재 카탈로그와 다릅니다.`);
+        if (head !== expected.head_sha256 || tail !== expected.tail_sha256) throw new Error(t("file.version_mismatch", {name:expected.name}));
       }
       mapped.set(archive, file);
     }
@@ -341,22 +392,24 @@
     const button = $("#choose-folder");
     if (type === "error") {
       button.disabled = false;
-      button.textContent = "PopTag 폴더 선택";
+      button.dataset.i18n = "folder.select";
+      button.textContent = t("folder.select");
       alert(message);
       return;
     }
-    button.disabled = message.includes("확인");
-    button.textContent = button.disabled ? "확인 중…" : "PopTag 폴더 선택";
+    button.disabled = type === "loading";
+    button.dataset.i18n = button.disabled ? "folder.checking" : "folder.select";
+    button.textContent = t(button.dataset.i18n);
   }
 
   async function connectFiles(files, handle = null) {
-    gateStatus("IDD 파일을 확인하는 중…");
+    gateStatus(t("folder.checking"), "loading");
     try {
       resourceStore = new ResourceStore(await validateFiles(files));
       resetMovementBombs();
       await applyMovementFieldTiles();
       if (handle) await saveDirectoryHandle(handle);
-      gateStatus("연결되었습니다.", "ok");
+      gateStatus(t("folder.connected"), "ok");
       $("#resource-gate").classList.add("ready");
       renderTabs(); showCurrent(); rebuildComposer();
     } catch (error) {
@@ -454,6 +507,12 @@
       x:(direction === "right" ? 1 : 0) - (direction === "left" ? 1 : 0),
       y:(direction === "down" ? 1 : 0) - (direction === "up" ? 1 : 0),
     };
+  }
+
+  function settleMovementFacing(state, now, delay = MOVEMENT_FACE_FORWARD_DELAY) {
+    if (state.moving || now - state.lastDirectionInputAt < delay || state.direction === "down") return false;
+    state.direction = "down";
+    return true;
   }
 
   function movementCellForPosition(position, cellSize, width = MOVEMENT_WIDTH, height = MOVEMENT_HEIGHT, cellAnchor = [0, cellSize]) {
@@ -632,7 +691,7 @@
   function updateMovementBombStatus(now = performance.now()) {
     const active = activeMovementBombCount(movementBombs, now, FIELD_BOMB_FUSE);
     const status = $("#movement-bomb-status");
-    if (status) status.textContent = `물풍선 ${active} / ${FIELD_BOMB_LIMIT}`;
+    if (status) status.textContent = t("bomb.status", {active, limit:FIELD_BOMB_LIMIT});
   }
 
   function pruneMovementBombs(now = performance.now()) {
@@ -723,12 +782,16 @@
     await Promise.all([...new Set(states.map(state => state.resource))].map(async resource => {
       resources.set(resource, await resourceStore.get(row?.archive || spec.archive, resource));
     }));
-    const fire = await resourceStore.get(spec.archive, spec.fire_resource);
+    const [fire, shadow] = await Promise.all([
+      resourceStore.get(spec.archive, spec.fire_resource),
+      resourceStore.get(spec.archive, spec.shadow_resource),
+    ]);
     return {
       spec,
       row,
       bombStates:states.map(state => ({...state, decoded:resources.get(state.resource)})),
       fire,
+      shadow,
     };
   }
 
@@ -787,9 +850,20 @@
     }
   }
 
+  function drawMovementShadow(context, decoded, sourceIndex, drawPoint, renderScale, opacity) {
+    if (!decoded) return;
+    context.save();
+    try {
+      context.globalAlpha *= opacity;
+      drawScaledFieldFrame(context, decoded, sourceIndex, drawPoint, renderScale);
+    } finally {
+      context.restore();
+    }
+  }
+
   function drawMovementFieldObjects(context, prepared, now, renderScale) {
     pruneMovementBombs(now);
-    const {spec, bombStates, fire} = prepared;
+    const {spec, bombStates, fire, shadow} = prepared;
     const cellSize = spec.grid_size[0] * renderScale;
     const duration = spec.fire_duration_ms || FIELD_FIRE_DURATION;
     const signature = [];
@@ -798,7 +872,9 @@
       if (state.state === "bomb") {
         const bombState = bombStates[placed.stateIndex % bombStates.length];
         const info = sequenceInfo(bombState, Math.max(0, state.elapsed));
-        drawScaledFieldFrame(context, bombState.decoded, info.sourceIndex, movementCellDrawPoint(placed, spec.grid_size, renderScale, spec.grid_draw_origin), renderScale);
+        const drawPoint = movementCellDrawPoint(placed, spec.grid_size, renderScale, spec.grid_draw_origin);
+        drawMovementShadow(context, shadow, spec.bomb_shadow_frame, drawPoint, renderScale, spec.shadow_opacity);
+        drawScaledFieldFrame(context, bombState.decoded, info.sourceIndex, drawPoint, renderScale);
         signature.push(`b${placed.id}:${placed.stateIndex}:${info.sourceIndex}`);
         continue;
       }
@@ -1128,7 +1204,7 @@
     } catch (error) {
       const {width, height} = item.context.canvas;
       item.context.clearRect(0, 0, width, height);
-      item.context.fillStyle = "#842f38"; item.context.font = "10px sans-serif"; item.context.fillText("렌더 오류", 8, 18);
+      item.context.fillStyle = "#842f38"; item.context.font = "10px sans-serif"; item.context.fillText(t("render.error"), 8, 18);
       console.error(error);
     }
   }
@@ -1140,6 +1216,7 @@
       const renderScale = movementCharacterScale();
       updateMovementFieldTileScale(renderScale);
       pruneMovementBombs(now);
+      settleMovementFacing(movementState, now);
       const vector = movementVector(movementState.direction, movementState.moving);
       const candidate = movementState.moving ? {
         x:movementState.x + vector.x * MOVEMENT_SPEED * delta / 1000,
@@ -1205,7 +1282,7 @@
   }
 
   function renderTabs() {
-    const buttons = keys => keys.map(key => `<button class="tab ${key === category ? "active" : ""}" data-category="${key}">${categoryLabels[key]} <span>${rowsForCategory(key).length.toLocaleString()}</span></button>`).join("");
+    const buttons = keys => keys.map(key => `<button class="tab ${key === category ? "active" : ""}" data-category="${key}">${escapeHtml(categoryLabel(key))} <span>${formatNumber(rowsForCategory(key).length)}</span></button>`).join("");
     $("#base-tabs").innerHTML = buttons(baseCategories);
     $("#costume-tabs").innerHTML = buttons(costumeCategories);
     $("#id-deco-tabs").innerHTML = buttons(extraCategories);
@@ -1215,15 +1292,15 @@
   }
 
   function rowFrameBadge(row) {
-    if (row.category === ID_DECO_CATEGORY) return `로비 ${row.lobby_frame_count} · 게임 안 ${row.game_frame_count}`;
-    if (row.category === BOMB_CATEGORY && row.connected) return `연결풍 · ${row.connected_state_count} 형태`;
-    return `${row.frame_count > 1 ? "GIF · " : ""}${row.frame_count} 프레임`;
+    if (row.category === ID_DECO_CATEGORY) return t("badge.id_deco", {lobby:row.lobby_frame_count, game:row.game_frame_count});
+    if (row.category === BOMB_CATEGORY && row.connected) return t("badge.connected", {count:row.connected_state_count});
+    return t("badge.frames", {prefix:row.frame_count > 1 ? "GIF · " : "", count:row.frame_count});
   }
 
   function rowPreview(row) {
-    const label = `${categoryLabels[row.category]} ${String(row.code).padStart(4, "0")} 미리보기`;
+    const label = t("catalog.preview_aria", {category:categoryLabel(row.category), code:String(row.code).padStart(4, "0")});
     if (row.category === ID_DECO_CATEGORY) {
-      return `<div class="preview-shell id-deco-preview"><div class="id-deco-palette"><div class="palette-labels"><span>로비</span><span>게임 안</span></div><canvas class="thumb id-deco-canvas" width="${ID_DECO_WIDTH}" height="${ID_DECO_HEIGHT}" aria-label="${escapeHtml(label)}"></canvas></div></div>`;
+      return `<div class="preview-shell id-deco-preview"><div class="id-deco-palette"><div class="palette-labels"><span>${escapeHtml(t("palette.lobby"))}</span><span>${escapeHtml(t("palette.in_game"))}</span></div><canvas class="thumb id-deco-canvas" width="${ID_DECO_WIDTH}" height="${ID_DECO_HEIGHT}" aria-label="${escapeHtml(label)}"></canvas></div></div>`;
     }
     return `<div class="preview-shell"><canvas class="thumb" width="${SLOT_SIZE}" height="${SLOT_SIZE}" aria-label="${escapeHtml(label)}"></canvas></div>`;
   }
@@ -1233,8 +1310,8 @@
     const rows = filteredRows(), selected = selectedCatalogCharacter(), compatibleSlots = compatibleCostumeSlots(selected);
     const total = rowsForCategory(category)
       .filter(row => !selected || row.character_slot == null || compatibleSlots.has(row.character_slot)).length;
-    $("#count").textContent = `${rows.length.toLocaleString()} / ${total.toLocaleString()}개`;
-    grid.innerHTML = rows.length ? rows.map(row => `<button class="card ${row.item_table_linked ? "" : "unlinked"}" data-key="${escapeHtml(row.key)}">${rowPreview(row)}<div class="body"><div class="row"><span class="code">${escapeHtml(rowCode(row))}</span><span class="badge">${escapeHtml(rowFrameBadge(row))}</span></div><div class="name">${escapeHtml(rowLabel(row))}</div><div class="resource">${escapeHtml(rowResource(row))}</div></div></button>`).join("") : `<div class="empty">조건에 맞는 항목이 없습니다.</div>`;
+    $("#count").textContent = t("catalog.count", {shown:formatNumber(rows.length), total:formatNumber(total)});
+    grid.innerHTML = rows.length ? rows.map(row => `<button class="card ${row.item_table_linked ? "" : "unlinked"}" data-key="${escapeHtml(row.key)}">${rowPreview(row)}<div class="body"><div class="row"><span class="code">${escapeHtml(rowCode(row))}</span><span class="badge">${escapeHtml(rowFrameBadge(row))}</span></div><div class="name">${escapeHtml(rowLabel(row))}</div><div class="resource">${escapeHtml(rowResource(row))}</div></div></button>`).join("") : `<div class="empty">${escapeHtml(t("catalog.empty"))}</div>`;
     for (const [index, canvas] of [...document.querySelectorAll("canvas.thumb")].entries()) canvas._row = rows[index];
     observePreviews();
   }
@@ -1245,21 +1322,25 @@
     if (!row) return;
     const isIdDeco = row.category === ID_DECO_CATEGORY;
     const isBomb = row.category === BOMB_CATEGORY;
-    $("#vcode").textContent = isIdDeco ? `${rowCode(row)} · 로비 ${row.lobby_frame_count} / 게임 안 ${row.game_frame_count} 프레임` : isBomb && row.connected ? `${rowCode(row)} · 연결풍 ${row.connected_state_count} 형태` : `${rowCode(row)} · ${row.frame_count} 프레임`;
+    $("#vcode").textContent = isIdDeco
+      ? t("summary.id_deco", {code:rowCode(row), lobby:row.lobby_frame_count, game:row.game_frame_count})
+      : isBomb && row.connected
+        ? t("summary.connected", {code:rowCode(row), count:row.connected_state_count})
+        : t("summary.frames", {code:rowCode(row), count:row.frame_count});
     $("#vname").textContent = rowLabel(row);
     const tryButton = $("#try-item"); tryButton.dataset.key = row.key;
     const details = isIdDeco ? [
-      ["종류", categoryLabels[row.category]], ["로비 리소스", row.lobby_resource],
-      ["게임 안 리소스", row.game_resource], ["로비 크기", row.lobby_frame_dimensions.join(", ")],
-      ["게임 안 크기", row.game_frame_dimensions.join(", ")], ["아이템 ID", row.item_ids?.length ? row.item_ids.join(", ") : "없음"],
+      [t("detail.type"), categoryLabel(row.category)], [t("detail.lobby_resource"), row.lobby_resource],
+      [t("detail.in_game_resource"), row.game_resource], [t("detail.lobby_size"), row.lobby_frame_dimensions.join(", ")],
+      [t("detail.in_game_size"), row.game_frame_dimensions.join(", ")], [t("detail.item_id"), row.item_ids?.length ? row.item_ids.join(", ") : t("value.none")],
     ] : isBomb ? [
-      ["종류", categoryLabels[row.category]], ["리소스", rowResource(row)],
-      ["크기", row.frame_dimensions.join(", ")], ["형태", row.connected ? `연결풍 · 설치 순서대로 ${row.connected_state_count}형태 순환` : "일반 물풍선"],
-      ["아이템 ID", row.item_ids?.length ? row.item_ids.join(", ") : "없음"],
+      [t("detail.type"), categoryLabel(row.category)], [t("detail.resource"), rowResource(row)],
+      [t("detail.size"), row.frame_dimensions.join(", ")], [t("detail.form"), row.connected ? t("bomb.connected_cycle", {count:row.connected_state_count}) : t("bomb.normal")],
+      [t("detail.item_id"), row.item_ids?.length ? row.item_ids.join(", ") : t("value.none")],
     ] : [
-      ["종류", categoryLabels[row.category]], ["리소스", rowResource(row)],
-      ["크기", row.frame_dimensions.join(", ")], ["표시 형식", row.frame_count > 1 ? "움직이는 GIF" : "정지 이미지"],
-      ["아이템 ID", row.item_ids?.length ? row.item_ids.join(", ") : "없음"],
+      [t("detail.type"), categoryLabel(row.category)], [t("detail.resource"), rowResource(row)],
+      [t("detail.size"), row.frame_dimensions.join(", ")], [t("detail.display_format"), row.frame_count > 1 ? t("display.animated_gif") : t("display.static_image")],
+      [t("detail.item_id"), row.item_ids?.length ? row.item_ids.join(", ") : t("value.none")],
     ];
     $("#details").innerHTML = details.map(([key, value]) => `<div class="detail"><small>${key}</small><div>${escapeHtml(value)}</div></div>`).join("");
     const canvas = $("#modal-canvas"), shell = $("#modal-shell"), paletteLabels = $("#modal-palette-labels");
@@ -1272,7 +1353,7 @@
       const renderer = await createRowRenderer(row);
       modalAnimation = {renderer, context:canvas.getContext("2d"), started:performance.now(), signature:""};
       drawAnimationItem(modalAnimation, performance.now());
-    } catch (error) { alert(`미리보기를 만들지 못했습니다. ${error.message}`); }
+    } catch (error) { alert(t("preview.failed", {message:error.message})); }
   }
 
   function selectedBaseRow(key) {
@@ -1404,6 +1485,7 @@
           context.translate(drawPoint[0], drawPoint[1]);
           context.scale(renderScale, renderScale);
           context.translate(-drawPoint[0], -drawPoint[1]);
+          drawMovementShadow(context, fieldObjects.shadow, fieldObjects.spec.character_shadow_frame, drawPoint, 1, fieldObjects.spec.shadow_opacity);
           for (const key of costumeCategories) if (costumeInfo[key]?.renderPlane === "back") drawCostume(key);
           const baseVariants = new Set(costumeRows.outfit ? ["A"] : ["A", "B"]);
           drawParts(context, characterParts[direction], characterInfo.sourceIndex, color, baseVariants, drawPoint);
@@ -1449,23 +1531,56 @@
     } catch (error) { console.error(error); }
   }
 
-  function refreshCostumePickers() {
+  function refreshCostumePickers(previousValues = null) {
     const character = selectedCharacter();
     const compatibleSlots = compatibleCostumeSlots(character);
     for (const key of costumeCategories) {
-      const select = $(`#pick-costume-${key}`), previous = select.value;
+      const select = $(`#pick-costume-${key}`);
+      const previous = previousValues && Object.hasOwn(previousValues, key) ? previousValues[key] : select.value;
       const compatible = (costumesByCategory.get(key) || []).filter(row => row.character_slot == null || compatibleSlots.has(row.character_slot));
       const slotRank = row => row.character_slot == null ? 0 : row.character_slot === character?.code ? 1 : 2;
       compatible.sort((left, right) => slotRank(left) - slotRank(right) || left.code - right.code || rowLabel(left).localeCompare(rowLabel(right), "ko"));
-      select.innerHTML = `<option value="">착용 안 함</option>${compatible.map(row => `<option value="${escapeHtml(row.key)}">${row.character_slot == null ? "공용" : `${String(row.character_slot).padStart(2, "0")} 전용`} · ${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
+      select.innerHTML = `<option value="">${escapeHtml(t("picker.none"))}</option>${compatible.map(row => `<option value="${escapeHtml(row.key)}">${row.character_slot == null ? escapeHtml(t("picker.common")) : escapeHtml(t("picker.exclusive", {slot:String(row.character_slot).padStart(2, "0")}))} · ${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
       select.value = compatible.some(row => row.key === previous) ? previous : "";
       select.disabled = !compatible.length;
     }
   }
 
-  function categoryListButton(key, label) {
-    const title = `${label} 목록 보기`;
+  function categoryListButton(key, labelKey) {
+    const title = t("category.list", {category:t(labelKey)});
     return `<button class="category-list-button" type="button" data-open-category="${key}" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg></button>`;
+  }
+
+  function composerPickerState() {
+    const value = selector => $(selector)?.value ?? "";
+    return {
+      catalogCharacter:characterFilter.value,
+      character:value("#pick-character"),
+      color:value("#pick-character-color") || "red",
+      costumes:Object.fromEntries(costumeCategories.map(key => [key, value(`#pick-costume-${key}`)])),
+      bases:Object.fromEntries(baseCategories.map(key => [key, value(`#pick-${key}`)])),
+      bomb:value("#pick-bomb"),
+      idDeco:value("#pick-id-deco"),
+    };
+  }
+
+  function renderComposerPickers(state = {}) {
+    const catalogCharacter = state.catalogCharacter ?? characterFilter.value;
+    characterFilter.innerHTML = `<option value="">${escapeHtml(t("character.all"))}</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
+    characterFilter.value = CHARACTERS.some(row => String(row.code) === String(catalogCharacter)) ? String(catalogCharacter) : "";
+    $("#character-pickers").innerHTML = `<div class="picker"><label for="pick-character">${escapeHtml(t("character.label"))}</label><select id="pick-character"><option value="">${escapeHtml(t("picker.none"))}</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div><div class="picker"><label for="pick-character-color">${escapeHtml(t("character.render_color"))}</label><div class="color-choice"><select id="pick-character-color">${characterColors.map(([value, nameKey]) => `<option value="${value}">${escapeHtml(t(nameKey))}</option>`).join("")}</select><span class="color-swatch" id="character-color-swatch" aria-hidden="true"></span></div></div>`;
+    $("#pick-character").value = CHARACTERS.some(row => String(row.code) === String(state.character)) ? String(state.character) : "";
+    $("#pick-character-color").value = characterColors.some(([value]) => value === state.color) ? state.color : "red";
+    $("#costume-pickers").innerHTML = costumeCategories.map(key => `<div class="picker"><div class="picker-label-row"><label for="pick-costume-${key}">${escapeHtml(t(costumeLabels[key]))}</label>${categoryListButton(key, costumeLabels[key])}</div><select id="pick-costume-${key}" data-costume="${key}"></select></div>`).join("");
+    $("#pickers").innerHTML = baseCategories.map(key => `<div class="picker"><div class="picker-label-row"><label for="pick-${key}">${escapeHtml(t(baseLabels[key]))}</label>${categoryListButton(key, baseLabels[key])}</div><select id="pick-${key}" data-base="${key}"><option value="">${escapeHtml(t(key === "background" ? "picker.default_background" : key === "flag" ? "picker.default_flag" : "picker.none"))}</option>${(catalogByCategory.get(key) || []).map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div>`).join("");
+    $("#field-pickers").innerHTML = `<div class="picker"><div class="picker-label-row"><label for="pick-bomb">${escapeHtml(t(extraLabels[BOMB_CATEGORY]))}</label>${categoryListButton(BOMB_CATEGORY, extraLabels[BOMB_CATEGORY])}</div><select id="pick-bomb"><option value="">${escapeHtml(t("picker.default_bomb"))}</option>${bombs.map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}${row.connected ? ` · ${escapeHtml(t("bomb.connected_short", {count:row.connected_state_count}))}` : ""}</option>`).join("")}</select></div>`;
+    $("#pick-id-deco").innerHTML = `<option value="">${escapeHtml(t("picker.none"))}</option>${idDecorations.map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
+    for (const key of baseCategories) $(`#pick-${key}`).value = state.bases?.[key] ?? "";
+    $("#pick-bomb").value = state.bomb ?? "";
+    $("#pick-id-deco").value = state.idDeco ?? "";
+    refreshCostumePickers(state.costumes || {});
+    $("#character-color-swatch").style.background = colorSwatch($("#pick-character-color").value);
+    $("#render-id-deco").disabled = !selectedIdDecoration();
   }
 
   function selectedRowForCategory(key) {
@@ -1495,14 +1610,7 @@
   }
 
   function setupComposer() {
-    characterFilter.innerHTML = `<option value="">전체 캐릭터</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
-    $("#character-pickers").innerHTML = `<div class="picker"><label for="pick-character">캐릭터</label><select id="pick-character"><option value="">착용 안 함</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div><div class="picker"><label for="pick-character-color">캐릭터 렌더색</label><div class="color-choice"><select id="pick-character-color">${characterColors.map(([value, name]) => `<option value="${value}" ${value === "red" ? "selected" : ""}>${name}</option>`).join("")}</select><span class="color-swatch" id="character-color-swatch" aria-hidden="true"></span></div></div>`;
-    $("#costume-pickers").innerHTML = costumeCategories.map(key => `<div class="picker"><div class="picker-label-row"><label for="pick-costume-${key}">${costumeLabels[key]}</label>${categoryListButton(key, costumeLabels[key])}</div><select id="pick-costume-${key}" data-costume="${key}"></select></div>`).join("");
-    $("#pickers").innerHTML = baseCategories.map(key => `<div class="picker"><div class="picker-label-row"><label for="pick-${key}">${baseLabels[key]}</label>${categoryListButton(key, baseLabels[key])}</div><select id="pick-${key}" data-base="${key}"><option value="">${key === "background" ? "기본 배경" : key === "flag" ? "기본 깃발" : "착용 안 함"}</option>${(catalogByCategory.get(key) || []).map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div>`).join("");
-    $("#field-pickers").innerHTML = `<div class="picker"><div class="picker-label-row"><label for="pick-bomb">물풍선</label>${categoryListButton(BOMB_CATEGORY, extraLabels[BOMB_CATEGORY])}</div><select id="pick-bomb"><option value="">기본 물풍선</option>${bombs.map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}${row.connected ? ` · 연결풍 ${row.connected_state_count}형태` : ""}</option>`).join("")}</select></div>`;
-    $("#pick-id-deco").innerHTML = `<option value="">착용 안 함</option>${idDecorations.map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
-    $("#character-color-swatch").style.background = colorSwatch("red");
-    refreshCostumePickers();
+    renderComposerPickers({color:"red"});
     $("#character-pickers").addEventListener("change", event => {
       if (event.target.id === "pick-character") refreshCostumePickers();
       if (event.target.id === "pick-character-color") $("#character-color-swatch").style.background = colorSwatch(selectedColor());
@@ -1608,9 +1716,9 @@
       const context = canvas.getContext("2d", {willReadFrequently:true}), frames = [], durations = [];
       for (const segment of timeline) { renderer.draw(context, segment.start); frames.push(context.getImageData(0, 0, SLOT_SIZE, SLOT_SIZE)); durations.push(segment.duration); }
       const url = URL.createObjectURL(makeGif(frames, durations, SLOT_SIZE, SLOT_SIZE)), anchor = document.createElement("a");
-      anchor.download = `poptag-${frames.length}프레임-${Date.now()}.gif`; anchor.href = url; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-      button.textContent = "완료";
-    } catch (error) { alert(`GIF 저장에 실패했습니다. ${error.message}`); }
+      anchor.download = `poptag-${frames.length}-${t("file.frames")}-${Date.now()}.gif`; anchor.href = url; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      button.textContent = t("gif.done");
+    } catch (error) { alert(t("gif.failed", {message:error.message})); }
     finally { setTimeout(() => { button.disabled = false; button.textContent = "GIF"; }, 900); }
   }
 
@@ -1628,19 +1736,21 @@
         frames.push(context.getImageData(0, 0, ID_DECO_WIDTH, ID_DECO_HEIGHT)); durations.push(segment.duration);
       }
       const url = URL.createObjectURL(makeGif(frames, durations, ID_DECO_WIDTH, ID_DECO_HEIGHT)), anchor = document.createElement("a");
-      anchor.download = `poptag-id-${String(row.code).padStart(4, "0")}-${frames.length}프레임.gif`; anchor.href = url; anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000); button.textContent = "완료";
-    } catch (error) { alert(`GIF 저장에 실패했습니다. ${error.message}`); }
+      anchor.download = `poptag-id-${String(row.code).padStart(4, "0")}-${frames.length}-${t("file.frames")}.gif`; anchor.href = url; anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000); button.textContent = t("gif.done");
+    } catch (error) { alert(t("gif.failed", {message:error.message})); }
     finally { setTimeout(() => { button.disabled = !selectedIdDecoration(); button.textContent = "GIF"; }, 900); }
   }
 
-  function clearMovementInput() {
+  function clearMovementInput(now = performance.now()) {
     heldMovementDirections.clear();
     movementDirectionOrder = [];
     movementState.moving = false;
+    movementState.lastDirectionInputAt = now;
   }
 
   function setMovementInput(direction, pressed, now = performance.now()) {
+    movementState.lastDirectionInputAt = now;
     if (pressed) {
       if (!heldMovementDirections.has(direction)) {
         heldMovementDirections.add(direction);
@@ -1690,6 +1800,10 @@
   }
 
   $("#choose-folder").addEventListener("click", chooseDirectory);
+  $("#language-switch").addEventListener("click", event => {
+    const button = event.target.closest("[data-language]");
+    if (button) setLanguage(button.dataset.language);
+  });
   $("#idd-files").addEventListener("change", event => connectFiles(event.target.files));
   [search, sort, characterFilter].forEach(element => element.addEventListener("input", () => resourceStore && renderGrid()));
   $("#size").addEventListener("input", event => { const card = Number(event.target.value), thumb = {170:112,270:180,520:360}[card]; document.documentElement.style.setProperty("--card", `${card}px`); document.documentElement.style.setProperty("--thumb", `${thumb}px`); });
@@ -1729,6 +1843,6 @@
     if (category === "tryon") updateMovementFieldTileScale(movementCharacterScale());
   });
 
-  setupComposer(); updateMovementBombStatus(); renderTabs(); requestAnimationFrame(animationLoop);
+  applyStaticTranslations(); setupComposer(); updateMovementBombStatus(); renderTabs(); requestAnimationFrame(animationLoop);
   restoreDirectoryHandle().then(async handle => { if (handle) await connectFiles(await filesFromDirectory(handle), handle); }).catch(() => {});
 })();
