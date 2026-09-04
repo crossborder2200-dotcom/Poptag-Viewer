@@ -24,6 +24,7 @@
   // therefore (+7, +5) from the decoration's authored draw point.
   const ID_DECO_PORTRAIT_OFFSET = [7, 5];
   const ID_DECO_CATEGORY = "id_deco";
+  const BOMB_CATEGORY = "bomb";
   const CHARACTER_DRAW_POINT = [37, 119];
   const DEFAULT_FRAME_DURATION = 120;
   const MAX_GIF_DURATION = 12000;
@@ -31,7 +32,7 @@
   const CACHE_LIMIT = 192;
   const baseLabels = {background:"배경", flag:"깃발", prop:"소품", effect:"효과"};
   const costumeLabels = {expression:"표정", hair:"가발", head:"모자", mask:"가면", outfit:"의상", accessory:"액세서리", wing:"날개", special:"특수효과"};
-  const extraLabels = {[ID_DECO_CATEGORY]:"아이디치장"};
+  const extraLabels = {[ID_DECO_CATEGORY]:"아이디치장", [BOMB_CATEGORY]:"물풍선"};
   const categoryLabels = {...baseLabels, ...costumeLabels, ...extraLabels};
   const baseCategories = Object.keys(baseLabels);
   const costumeCategories = Object.keys(costumeLabels);
@@ -55,6 +56,9 @@
   const idDecorations = Array.isArray(ID_DECOS) ? ID_DECOS : [];
   const idDecoByKey = new Map(idDecorations.map(row => [row.key, row]));
   const idDecoByCode = new Map(idDecorations.map(row => [row.code, row]));
+  const bombs = Array.isArray(BOMBS) ? BOMBS : [];
+  const bombByKey = new Map(bombs.map(row => [row.key, row]));
+  const bombByCode = new Map(bombs.map(row => [row.code, row]));
   const characterBySlot = new Map(CHARACTERS.map(row => [row.code, row]));
   const grid = $("#grid");
   const search = $("#search");
@@ -77,12 +81,13 @@
   let movementRenderScale = DEFAULT_MOVEMENT_RENDER_SCALE;
   let movementBombs = [];
   let nextMovementBombId = 1;
+  let nextMovementBombState = 0;
 
   const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;"}[character]));
   const rowLabel = row => row.item_names?.length ? row.item_names.join(" / ") : "이름 없음 · 리소스만 있음";
   const rowResource = row => row.category === ID_DECO_CATEGORY ? `${row.lobby_resource} / ${row.game_resource}` : row.render_resource || row.resource;
-  const rowsForCategory = value => baseCategories.includes(value) ? (catalogByCategory.get(value) || []) : costumeCategories.includes(value) ? (costumesByCategory.get(value) || []) : value === ID_DECO_CATEGORY ? idDecorations : [];
-  const rowPrefix = row => ({background:"BG", flag:"FLAG", prop:"PROP", effect:"FX", expression:"FACE", hair:"HAIR", head:"HEAD", mask:"MASK", outfit:"OUTFIT", accessory:"ACC", wing:"WING", special:"SPECIAL", id_deco:"ID"}[row.category] || row.category.toUpperCase());
+  const rowsForCategory = value => baseCategories.includes(value) ? (catalogByCategory.get(value) || []) : costumeCategories.includes(value) ? (costumesByCategory.get(value) || []) : value === ID_DECO_CATEGORY ? idDecorations : value === BOMB_CATEGORY ? bombs : [];
+  const rowPrefix = row => ({background:"BG", flag:"FLAG", prop:"PROP", effect:"FX", expression:"FACE", hair:"HAIR", head:"HEAD", mask:"MASK", outfit:"OUTFIT", accessory:"ACC", wing:"WING", special:"SPECIAL", id_deco:"ID", bomb:"BOMB"}[row.category] || row.category.toUpperCase());
   const rowCode = row => `${rowPrefix(row)} ${String(row.code).padStart(4, "0")}`;
 
   function u32(view, offset) { return view.getUint32(offset, true); }
@@ -640,6 +645,7 @@
   function resetMovementBombs() {
     movementBombs = [];
     nextMovementBombId = 1;
+    nextMovementBombState = 0;
     updateMovementBombStatus();
   }
 
@@ -656,7 +662,10 @@
     // the visual tile even though that anchor sits at its lower-left edge.
     const cell = movementCellForPosition(movementState, cellSize, MOVEMENT_WIDTH, MOVEMENT_HEIGHT, cellAnchor);
     if (movementBombs.some(bomb => bomb.column === cell.column && bomb.row === cell.row)) return false;
-    movementBombs.push({id:nextMovementBombId++, ...cell, placedAt:now, explodeAt:now + FIELD_BOMB_FUSE, ownerCanPass:true});
+    const stateCount = Math.max(1, selectedBomb()?.connected_state_count || 1);
+    const stateIndex = nextMovementBombState % stateCount;
+    nextMovementBombState = (nextMovementBombState + 1) % stateCount;
+    movementBombs.push({id:nextMovementBombId++, ...cell, stateIndex, placedAt:now, explodeAt:now + FIELD_BOMB_FUSE, ownerCanPass:true});
     updateMovementBombStatus(now);
     return true;
   }
@@ -696,13 +705,31 @@
     }));
   }
 
+  function visibleBombStates(row) {
+    if (!row?.states?.length) return [];
+    return row.connected ? row.states : row.states.slice(0, 1);
+  }
+
   async function prepareMovementFieldObjects() {
     const spec = RESOURCE_MANIFEST.defaults.field_objects;
-    const [bomb, fire] = await Promise.all([
-      resourceStore.get(spec.archive, spec.bomb_resource),
-      resourceStore.get(spec.archive, spec.fire_resource),
-    ]);
-    return {spec, bomb, fire};
+    const row = selectedBomb();
+    const states = row ? visibleBombStates(row) : [{
+      name:"Default",
+      resource:spec.bomb_resource,
+      frame_sequence:spec.bomb_frame_sequence || Array.from({length:spec.bomb_frame_count}, (_, index) => index),
+      frame_durations:spec.bomb_frame_durations || Array(spec.bomb_frame_count).fill(FIELD_BOMB_FRAME_DURATION),
+    }];
+    const resources = new Map();
+    await Promise.all([...new Set(states.map(state => state.resource))].map(async resource => {
+      resources.set(resource, await resourceStore.get(row?.archive || spec.archive, resource));
+    }));
+    const fire = await resourceStore.get(spec.archive, spec.fire_resource);
+    return {
+      spec,
+      row,
+      bombStates:states.map(state => ({...state, decoded:resources.get(state.resource)})),
+      fire,
+    };
   }
 
   function drawCenteredIn(context, decoded, sourceIndex, left, top, width, height) {
@@ -762,16 +789,17 @@
 
   function drawMovementFieldObjects(context, prepared, now, renderScale) {
     pruneMovementBombs(now);
-    const {spec, bomb, fire} = prepared;
+    const {spec, bombStates, fire} = prepared;
     const cellSize = spec.grid_size[0] * renderScale;
     const duration = spec.fire_duration_ms || FIELD_FIRE_DURATION;
     const signature = [];
     for (const placed of movementBombs) {
       const state = movementBombPhase(placed, now, FIELD_BOMB_FUSE, duration);
       if (state.state === "bomb") {
-        const sourceIndex = Math.floor(Math.max(0, state.elapsed) / FIELD_BOMB_FRAME_DURATION) % spec.bomb_frame_count;
-        drawScaledFieldFrame(context, bomb, sourceIndex, movementCellDrawPoint(placed, spec.grid_size, renderScale, spec.grid_draw_origin), renderScale);
-        signature.push(`b${placed.id}:${sourceIndex}`);
+        const bombState = bombStates[placed.stateIndex % bombStates.length];
+        const info = sequenceInfo(bombState, Math.max(0, state.elapsed));
+        drawScaledFieldFrame(context, bombState.decoded, info.sourceIndex, movementCellDrawPoint(placed, spec.grid_size, renderScale, spec.grid_draw_origin), renderScale);
+        signature.push(`b${placed.id}:${placed.stateIndex}:${info.sourceIndex}`);
         continue;
       }
       if (state.state !== "fire") continue;
@@ -949,6 +977,27 @@
     };
   }
 
+  async function createBombRenderer(row) {
+    const states = visibleBombStates(row);
+    const resources = new Map();
+    await Promise.all([...new Set(states.map(state => state.resource))].map(async resource => {
+      resources.set(resource, await resourceStore.get(row.archive, resource));
+    }));
+    const periods = states.map(state => sequenceInfo(state, 0).period);
+    const totalPeriod = Math.max(1, periods.reduce((sum, value) => sum + value, 0));
+    return {
+      timelineRows:states,
+      draw(context, elapsed) {
+        let local = Math.max(0, elapsed) % totalPeriod, stateIndex = 0;
+        while (stateIndex < periods.length - 1 && local >= periods[stateIndex]) local -= periods[stateIndex++];
+        const state = states[stateIndex], info = sequenceInfo(state, local);
+        context.clearRect(0, 0, SLOT_SIZE, SLOT_SIZE);
+        drawAnchoredCenteredIn(context, resources.get(state.resource), info.sourceIndex, 0, 0, SLOT_SIZE, SLOT_SIZE);
+        return `${stateIndex}:${info.sourceIndex}`;
+      },
+    };
+  }
+
   async function createCostumePreviewRenderer(row) {
     const selected = selectedCatalogCharacter();
     const selectedCanWear = selected && (row.character_slot == null || compatibleCostumeSlots(selected).has(row.character_slot));
@@ -1055,6 +1104,7 @@
 
   async function createRowRenderer(row) {
     if (row.category === ID_DECO_CATEGORY) return createIdDecoRenderer(row);
+    if (row.category === BOMB_CATEGORY) return createBombRenderer(row);
     return baseCategories.includes(row.category) ? createBaseRenderer(row) : createCostumePreviewRenderer(row);
   }
 
@@ -1166,6 +1216,7 @@
 
   function rowFrameBadge(row) {
     if (row.category === ID_DECO_CATEGORY) return `로비 ${row.lobby_frame_count} · 게임 안 ${row.game_frame_count}`;
+    if (row.category === BOMB_CATEGORY && row.connected) return `연결풍 · ${row.connected_state_count} 형태`;
     return `${row.frame_count > 1 ? "GIF · " : ""}${row.frame_count} 프레임`;
   }
 
@@ -1188,18 +1239,23 @@
     observePreviews();
   }
 
-  function lookupRow(key) { return CATALOG.find(row => row.key === key) || costumeByKey.get(key) || idDecoByKey.get(key); }
+  function lookupRow(key) { return CATALOG.find(row => row.key === key) || costumeByKey.get(key) || idDecoByKey.get(key) || bombByKey.get(key); }
 
   async function openRow(row) {
     if (!row) return;
     const isIdDeco = row.category === ID_DECO_CATEGORY;
-    $("#vcode").textContent = isIdDeco ? `${rowCode(row)} · 로비 ${row.lobby_frame_count} / 게임 안 ${row.game_frame_count} 프레임` : `${rowCode(row)} · ${row.frame_count} 프레임`;
+    const isBomb = row.category === BOMB_CATEGORY;
+    $("#vcode").textContent = isIdDeco ? `${rowCode(row)} · 로비 ${row.lobby_frame_count} / 게임 안 ${row.game_frame_count} 프레임` : isBomb && row.connected ? `${rowCode(row)} · 연결풍 ${row.connected_state_count} 형태` : `${rowCode(row)} · ${row.frame_count} 프레임`;
     $("#vname").textContent = rowLabel(row);
     const tryButton = $("#try-item"); tryButton.dataset.key = row.key;
     const details = isIdDeco ? [
       ["종류", categoryLabels[row.category]], ["로비 리소스", row.lobby_resource],
       ["게임 안 리소스", row.game_resource], ["로비 크기", row.lobby_frame_dimensions.join(", ")],
       ["게임 안 크기", row.game_frame_dimensions.join(", ")], ["아이템 ID", row.item_ids?.length ? row.item_ids.join(", ") : "없음"],
+    ] : isBomb ? [
+      ["종류", categoryLabels[row.category]], ["리소스", rowResource(row)],
+      ["크기", row.frame_dimensions.join(", ")], ["형태", row.connected ? `연결풍 · 설치 순서대로 ${row.connected_state_count}형태 순환` : "일반 물풍선"],
+      ["아이템 ID", row.item_ids?.length ? row.item_ids.join(", ") : "없음"],
     ] : [
       ["종류", categoryLabels[row.category]], ["리소스", rowResource(row)],
       ["크기", row.frame_dimensions.join(", ")], ["표시 형식", row.frame_count > 1 ? "움직이는 GIF" : "정지 이미지"],
@@ -1227,6 +1283,11 @@
   function selectedIdDecoration() {
     const value = $("#pick-id-deco")?.value;
     return value ? idDecoByCode.get(Number(value)) || null : null;
+  }
+
+  function selectedBomb() {
+    const value = $("#pick-bomb")?.value;
+    return value ? bombByCode.get(Number(value)) || null : null;
   }
 
   function selectedCharacter() {
@@ -1402,11 +1463,43 @@
     }
   }
 
+  function categoryListButton(key, label) {
+    const title = `${label} 목록 보기`;
+    return `<button class="category-list-button" type="button" data-open-category="${key}" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg></button>`;
+  }
+
+  function selectedRowForCategory(key) {
+    if (baseCategories.includes(key)) return selectedBaseRow(key);
+    if (costumeCategories.includes(key)) return selectedCostume(key);
+    if (key === ID_DECO_CATEGORY) return selectedIdDecoration();
+    return key === BOMB_CATEGORY ? selectedBomb() : null;
+  }
+
+  function openCategoryList(nextCategory) {
+    if (!Object.hasOwn(categoryLabels, nextCategory)) return false;
+    const selectedRow = selectedRowForCategory(nextCategory);
+    search.value = "";
+    if (costumeCategories.includes(nextCategory)) characterFilter.value = selectedCharacter()?.code ?? "";
+    category = nextCategory;
+    renderTabs();
+    showCurrent();
+    requestAnimationFrame(() => {
+      const card = selectedRow ? [...grid.querySelectorAll(".card")].find(candidate => candidate.dataset.key === selectedRow.key) : null;
+      if (!card) { window.scrollTo({top:0, behavior:"smooth"}); return; }
+      card.classList.add("catalog-focus");
+      card.scrollIntoView({behavior:"smooth", block:"center", inline:"nearest"});
+      card.focus({preventScroll:true});
+      setTimeout(() => card.classList.remove("catalog-focus"), 1800);
+    });
+    return true;
+  }
+
   function setupComposer() {
     characterFilter.innerHTML = `<option value="">전체 캐릭터</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
     $("#character-pickers").innerHTML = `<div class="picker"><label for="pick-character">캐릭터</label><select id="pick-character"><option value="">착용 안 함</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div><div class="picker"><label for="pick-character-color">캐릭터 렌더색</label><div class="color-choice"><select id="pick-character-color">${characterColors.map(([value, name]) => `<option value="${value}" ${value === "red" ? "selected" : ""}>${name}</option>`).join("")}</select><span class="color-swatch" id="character-color-swatch" aria-hidden="true"></span></div></div>`;
-    $("#costume-pickers").innerHTML = costumeCategories.map(key => `<div class="picker"><label for="pick-costume-${key}">${costumeLabels[key]}</label><select id="pick-costume-${key}" data-costume="${key}"></select></div>`).join("");
-    $("#pickers").innerHTML = baseCategories.map(key => `<div class="picker"><label for="pick-${key}">${baseLabels[key]}</label><select id="pick-${key}" data-base="${key}"><option value="">${key === "background" ? "기본 배경" : key === "flag" ? "기본 깃발" : "착용 안 함"}</option>${(catalogByCategory.get(key) || []).map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div>`).join("");
+    $("#costume-pickers").innerHTML = costumeCategories.map(key => `<div class="picker"><div class="picker-label-row"><label for="pick-costume-${key}">${costumeLabels[key]}</label>${categoryListButton(key, costumeLabels[key])}</div><select id="pick-costume-${key}" data-costume="${key}"></select></div>`).join("");
+    $("#pickers").innerHTML = baseCategories.map(key => `<div class="picker"><div class="picker-label-row"><label for="pick-${key}">${baseLabels[key]}</label>${categoryListButton(key, baseLabels[key])}</div><select id="pick-${key}" data-base="${key}"><option value="">${key === "background" ? "기본 배경" : key === "flag" ? "기본 깃발" : "착용 안 함"}</option>${(catalogByCategory.get(key) || []).map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div>`).join("");
+    $("#field-pickers").innerHTML = `<div class="picker"><div class="picker-label-row"><label for="pick-bomb">물풍선</label>${categoryListButton(BOMB_CATEGORY, extraLabels[BOMB_CATEGORY])}</div><select id="pick-bomb"><option value="">기본 물풍선</option>${bombs.map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}${row.connected ? ` · 연결풍 ${row.connected_state_count}형태` : ""}</option>`).join("")}</select></div>`;
     $("#pick-id-deco").innerHTML = `<option value="">착용 안 함</option>${idDecorations.map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
     $("#character-color-swatch").style.background = colorSwatch("red");
     refreshCostumePickers();
@@ -1417,6 +1510,10 @@
     });
     $("#costume-pickers").addEventListener("change", rebuildComposer);
     $("#pickers").addEventListener("change", rebuildComposer);
+    $("#field-pickers").addEventListener("change", () => {
+      resetMovementBombs();
+      rebuildComposer();
+    });
     $("#pick-id-deco").addEventListener("change", () => {
       $("#render-id-deco").disabled = !selectedIdDecoration();
       rebuildComposer();
@@ -1428,6 +1525,10 @@
     setMovementRenderScale(DEFAULT_MOVEMENT_RENDER_SCALE);
     $("#render").addEventListener("click", renderCompositionGif);
     $("#render-id-deco").addEventListener("click", renderIdDecoGif);
+    $("#composer").addEventListener("click", event => {
+      const button = event.target.closest("[data-open-category]");
+      if (button) openCategoryList(button.dataset.openCategory);
+    });
   }
 
   function tryCurrentItem() {
@@ -1435,6 +1536,9 @@
     if (row.category === ID_DECO_CATEGORY) {
       $("#pick-id-deco").value = String(row.code);
       $("#render-id-deco").disabled = false;
+    } else if (row.category === BOMB_CATEGORY) {
+      $("#pick-bomb").value = String(row.code);
+      resetMovementBombs();
     } else if (baseCategories.includes(row.category)) {
       const select = $(`#pick-${row.category}`); select.value = String(row.code);
     } else {
@@ -1589,7 +1693,10 @@
   $("#idd-files").addEventListener("change", event => connectFiles(event.target.files));
   [search, sort, characterFilter].forEach(element => element.addEventListener("input", () => resourceStore && renderGrid()));
   $("#size").addEventListener("input", event => { const card = Number(event.target.value), thumb = {170:112,270:180,520:360}[card]; document.documentElement.style.setProperty("--card", `${card}px`); document.documentElement.style.setProperty("--thumb", `${thumb}px`); });
-  $("#tabs").addEventListener("click", event => { const tab = event.target.closest(".tab"); if (!tab) return; category = tab.dataset.category; renderTabs(); showCurrent(); });
+  $("#tabs").addEventListener("click", event => {
+    const tab = event.target.closest(".tab");
+    if (tab) openCategoryList(tab.dataset.category);
+  });
   $("#tryon-tab").addEventListener("click", () => { category = "tryon"; renderTabs(); showCurrent(); rebuildComposer(); });
   grid.addEventListener("click", event => { const card = event.target.closest(".card"); if (card) openRow(lookupRow(card.dataset.key)); });
   $("#try-item").addEventListener("click", tryCurrentItem);

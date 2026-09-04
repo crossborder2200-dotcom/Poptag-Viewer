@@ -38,6 +38,8 @@
     #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--card)),1fr)); gap:14px; }
     .card { min-width:0; padding:0; overflow:hidden; text-align:left; color:inherit; background:linear-gradient(145deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:14px; cursor:pointer; box-shadow:0 10px 30px rgba(0,0,0,.18); transition:.16s transform,.16s border-color,.16s box-shadow; }
     .card:hover { transform:translateY(-3px); border-color:#527195; box-shadow:0 14px 35px rgba(0,0,0,.3); }
+    .card.catalog-focus { border-color:var(--cyan); box-shadow:0 0 0 3px rgba(98,228,255,.28),0 18px 48px rgba(0,0,0,.42); animation:catalog-focus 1.8s ease-out; }
+    @keyframes catalog-focus { 0%,35% { transform:translateY(-4px) scale(1.015); } 100% { transform:none; } }
     .preview-shell,.full-shell,.stage,.id-deco-stage { background-color:#dfe5ec; background-image:linear-gradient(45deg,#b8c2cd 25%,transparent 25%),linear-gradient(-45deg,#b8c2cd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#b8c2cd 75%),linear-gradient(-45deg,transparent 75%,#b8c2cd 75%); background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0; }
     .preview-shell { height:var(--thumb); min-width:0; min-height:0; display:grid; place-items:center; overflow:hidden; padding:10px; border-bottom:1px solid var(--line); }
     .preview-shell.id-deco-preview { height:max(112px,calc(var(--thumb) * .58)); padding:8px 10px 10px; }
@@ -71,6 +73,11 @@
     #stage-canvas { width:100%; height:100%; display:block; image-rendering:pixelated; }
     .picker { margin-bottom:15px; }
     .picker label { display:block; margin-bottom:6px; color:var(--yellow); font-weight:800; }
+    .picker-label-row { display:flex; align-items:center; gap:6px; min-height:28px; margin-bottom:6px; }
+    .picker-label-row label { margin:0; }
+    .category-list-button { width:28px; height:28px; flex:0 0 auto; display:inline-grid; place-items:center; padding:0; color:#b9c8dc; background:#111a2a; border:1px solid #3a4963; border-radius:8px; cursor:pointer; transition:.14s color,.14s background,.14s border-color,.14s transform; }
+    .category-list-button:hover { color:#061017; background:var(--cyan); border-color:var(--cyan); transform:translateY(-1px); }
+    .category-list-button svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; }
     .picker select { width:100%; min-height:45px; color:var(--text); background:#0f1624; border:1px solid var(--line); border-radius:10px; padding:0 10px; }
     .picker select:disabled { color:#738096; cursor:not-allowed; }
     .picker-section + .picker-section { margin-top:20px; padding-top:18px; border-top:1px solid var(--line); }
@@ -147,9 +154,9 @@
   <main>
     <section id="grid" aria-live="polite"></section>
     <section id="composer">
-      <div class="preview-palette"><div class="preview-board-head"><h2>미리보기</h2></div><div class="preview-workspace"><div class="preview-zone slot-zone"><div class="preview-zone-title"><h2>슬롯</h2><button class="render-button title-gif-button" id="render" type="button" aria-label="슬롯 GIF 저장">GIF</button></div><div class="stage"><canvas id="stage-canvas" width="148" height="148"></canvas></div></div><div class="preview-zone movement-zone"><div class="movement-head"><h2>프리뷰</h2><div class="movement-scale-control" id="movement-scale-control" role="group" aria-label="프리뷰 렌더링 크기"><span>렌더링 크기</span><button type="button" data-movement-scale="1" aria-pressed="false">x1</button><button type="button" data-movement-scale="1.5" aria-pressed="false">x1.5</button><button class="active" type="button" data-movement-scale="2" aria-pressed="true">x2</button></div></div><div class="movement-canvas-wrap"><canvas id="movement-canvas" width="640" height="360" tabindex="0" aria-label="방향키로 이동하고 Space 키로 물풍선을 놓는 프리뷰"></canvas><p class="movement-empty" id="movement-empty">캐릭터를 선택하세요</p></div></div><div class="id-deco-zone"><div class="preview-zone-title"><h2>아이디치장</h2><button class="render-button title-gif-button" id="render-id-deco" type="button" aria-label="아이디치장 GIF 저장" disabled>GIF</button></div><div class="id-deco-content"><div class="id-deco-toolbar"><div class="picker"><label for="pick-id-deco">선택</label><select id="pick-id-deco"><option value="">착용 안 함</option></select></div></div><div class="id-deco-palette"><div class="palette-labels"><span>로비</span><span>게임 안</span></div><div class="id-deco-stage"><canvas class="id-deco-canvas" id="id-deco-canvas" width="380" height="88"></canvas></div></div></div></div></div></div>
+      <div class="preview-palette"><div class="preview-board-head"><h2>미리보기</h2></div><div class="preview-workspace"><div class="preview-zone slot-zone"><div class="preview-zone-title"><h2>슬롯</h2><button class="render-button title-gif-button" id="render" type="button" aria-label="슬롯 GIF 저장">GIF</button></div><div class="stage"><canvas id="stage-canvas" width="148" height="148"></canvas></div></div><div class="preview-zone movement-zone"><div class="movement-head"><h2>프리뷰</h2><div class="movement-scale-control" id="movement-scale-control" role="group" aria-label="프리뷰 렌더링 크기"><span>렌더링 크기</span><button type="button" data-movement-scale="1" aria-pressed="false">x1</button><button type="button" data-movement-scale="1.5" aria-pressed="false">x1.5</button><button class="active" type="button" data-movement-scale="2" aria-pressed="true">x2</button></div></div><div class="movement-canvas-wrap"><canvas id="movement-canvas" width="640" height="360" tabindex="0" aria-label="방향키로 이동하고 Space 키로 물풍선을 놓는 프리뷰"></canvas><p class="movement-empty" id="movement-empty">캐릭터를 선택하세요</p></div></div><div class="id-deco-zone"><div class="preview-zone-title"><h2>아이디치장</h2><button class="category-list-button" type="button" data-open-category="id_deco" aria-label="아이디치장 목록 보기" title="아이디치장 목록 보기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg></button><button class="render-button title-gif-button" id="render-id-deco" type="button" aria-label="아이디치장 GIF 저장" disabled>GIF</button></div><div class="id-deco-content"><div class="id-deco-toolbar"><div class="picker"><label for="pick-id-deco">선택</label><select id="pick-id-deco"><option value="">착용 안 함</option></select></div></div><div class="id-deco-palette"><div class="palette-labels"><span>로비</span><span>게임 안</span></div><div class="id-deco-stage"><canvas class="id-deco-canvas" id="id-deco-canvas" width="380" height="88"></canvas></div></div></div></div></div></div>
       <div class="pick-panel character-panel" id="character-pickers"></div>
-      <div class="pick-panel item-panel"><div class="picker-section"><h2>캐릭터 코스튬</h2><div class="costume-grid" id="costume-pickers"></div></div><div class="picker-section"><h2>슬롯 꾸미기</h2><div id="pickers"></div></div></div>
+      <div class="pick-panel item-panel"><div class="picker-section"><h2>캐릭터 코스튬</h2><div class="costume-grid" id="costume-pickers"></div></div><div class="picker-section"><h2>슬롯 꾸미기</h2><div id="pickers"></div></div><div class="picker-section"><h2>프리뷰 꾸미기</h2><div id="field-pickers"></div></div></div>
     </section>
   </main>
   <dialog id="viewer">
@@ -160,7 +167,8 @@
   <script src="characters-data.js?v=20260904-12"></script>
   <script src="costumes-data.js?v=20260904-12"></script>
   <script src="id-deco-data.js?v=20260904-12"></script>
-  <script src="resource-data.js?v=20260904-17"></script>
-  <script src="viewer.js?v=20260904-17"></script>
+  <script src="bombs-data.js?v=20260904-1"></script>
+  <script src="resource-data.js?v=20260904-20"></script>
+  <script src="viewer.js?v=20260904-21"></script>
 </body>
 </html>
