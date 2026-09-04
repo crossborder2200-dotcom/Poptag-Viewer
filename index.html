@@ -17,22 +17,29 @@
     button,input,select { font:inherit; }
     button { color:inherit; }
     header { position:sticky; top:0; z-index:20; padding:18px 24px 14px; background:rgba(8,11,18,.94); border-bottom:1px solid var(--line); backdrop-filter:blur(18px); }
-    .top { display:flex; align-items:end; justify-content:space-between; gap:20px; margin-bottom:14px; }
+    .top { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:14px; }
+    .brand-line { display:flex; align-items:center; gap:14px; min-width:0; }
     h1 { margin:0; font-size:clamp(1.35rem,3vw,2rem); letter-spacing:-.04em; }
     .count { color:var(--cyan); font-weight:800; }
-    .tabs { display:flex; gap:7px; margin-bottom:12px; overflow-x:auto; scrollbar-width:thin; }
+    .tryon-button { min-height:48px; padding:0 24px; color:#061017; background:linear-gradient(135deg,#75ebff,#43d5f5); border:1px solid #8ff0ff; border-radius:13px; cursor:pointer; box-shadow:0 8px 24px rgba(76,218,247,.22),inset 0 1px rgba(255,255,255,.45); font-size:1.02rem; font-weight:900; white-space:nowrap; transition:.16s transform,.16s box-shadow; }
+    .tryon-button:hover { transform:translateY(-2px); box-shadow:0 12px 30px rgba(76,218,247,.32),inset 0 1px rgba(255,255,255,.5); }
+    .tryon-button.active { color:#fff; background:linear-gradient(135deg,#276486,#173e62); border-color:var(--cyan); }
+    .tab-stack { display:grid; gap:7px; margin-bottom:12px; }
+    .tabs { display:flex; gap:7px; margin:0; overflow-x:auto; scrollbar-width:thin; }
     .tab { min-height:40px; padding:0 16px; color:var(--muted); background:#111827; border:1px solid var(--line); border-radius:999px; cursor:pointer; white-space:nowrap; font-weight:800; }
     .tab.active { color:#071019; background:var(--cyan); border-color:var(--cyan); }
-    .controls { display:grid; grid-template-columns:minmax(220px,1fr) auto auto; gap:9px; }
+    .controls { display:grid; grid-template-columns:minmax(220px,1fr) auto auto auto; gap:9px; }
     .control { min-height:44px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:0 13px; }
+    .character-filter { min-width:220px; }
+    .character-filter[hidden] { display:none; }
     input:focus,select:focus,button:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
     main { padding:22px 24px 80px; }
     #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--card)),1fr)); gap:14px; }
     .card { min-width:0; padding:0; overflow:hidden; text-align:left; color:inherit; background:linear-gradient(145deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:14px; cursor:pointer; box-shadow:0 10px 30px rgba(0,0,0,.18); transition:.16s transform,.16s border-color,.16s box-shadow; }
     .card:hover { transform:translateY(-3px); border-color:#527195; box-shadow:0 14px 35px rgba(0,0,0,.3); }
     .preview-shell,.full-shell,.stage { background-color:#dfe5ec; background-image:linear-gradient(45deg,#b8c2cd 25%,transparent 25%),linear-gradient(-45deg,#b8c2cd 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#b8c2cd 75%),linear-gradient(-45deg,transparent 75%,#b8c2cd 75%); background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0; }
-    .preview-shell { height:var(--thumb); display:grid; place-items:center; padding:10px; border-bottom:1px solid var(--line); }
-    .thumb { width:100%; height:100%; display:block; image-rendering:pixelated; }
+    .preview-shell { height:var(--thumb); min-width:0; min-height:0; display:grid; place-items:center; overflow:hidden; padding:10px; border-bottom:1px solid var(--line); }
+    .thumb { width:auto; height:100%; max-width:100%; max-height:100%; aspect-ratio:1; display:block; image-rendering:pixelated; }
     .body { padding:12px 13px 14px; }
     .row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
     .code { min-width:0; color:var(--yellow); font-size:1.02rem; font-weight:900; letter-spacing:.025em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -66,48 +73,32 @@
     .try-button { min-height:42px; padding:0 16px; color:#061017; background:var(--cyan); border:0; border-radius:11px; cursor:pointer; font-weight:900; }
     .close { width:42px; height:42px; flex:0 0 auto; color:white; background:#202b40; border:1px solid #3a4963; border-radius:11px; cursor:pointer; font-size:1.35rem; }
     .modal-content { padding:18px; overflow:auto; }
-    .full-shell { width:100%; height:min(62vh,620px); display:grid; place-items:center; padding:16px; border-radius:10px; background-size:20px 20px; background-position:0 0,0 10px,10px -10px,-10px 0; }
-    #modal-canvas { width:100%; height:100%; display:block; image-rendering:pixelated; }
+    .full-shell { width:100%; height:min(62vh,620px); min-width:0; min-height:0; display:grid; place-items:center; overflow:hidden; padding:16px; border-radius:10px; background-size:20px 20px; background-position:0 0,0 10px,10px -10px,-10px 0; }
+    #modal-canvas { width:auto; height:100%; max-width:100%; max-height:100%; aspect-ratio:1; display:block; image-rendering:pixelated; }
     .details { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:14px; }
     .detail { min-width:0; padding:12px; background:#151d2c; border:1px solid var(--line); border-radius:10px; }
     .detail small { display:block; color:var(--muted); margin-bottom:5px; }
     .detail div { overflow-wrap:anywhere; }
     .resource-gate { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:20px; background:rgba(5,8,14,.94); backdrop-filter:blur(16px); }
     .resource-gate.ready { display:none; }
-    .gate-card { width:min(620px,100%); padding:28px; background:linear-gradient(145deg,#172136,#0e1422); border:1px solid #3c506e; border-radius:20px; box-shadow:0 30px 100px #000; }
-    .gate-card h2 { margin:0 0 10px; font-size:1.45rem; }
-    .gate-card p { color:#b8c6da; line-height:1.65; }
-    .gate-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px; }
-    .secondary { min-height:48px; background:#202b40; border:1px solid #435472; border-radius:11px; cursor:pointer; font-weight:800; }
-    .gate-status { min-height:1.5em; margin-top:14px; color:var(--muted); font-size:.9rem; }
-    .gate-status.error { color:#ff9e9e; }
-    .gate-status.ok { color:#83efab; }
-    .privacy { padding:10px 12px; color:#91a5c0; background:#0b111d; border-radius:10px; font-size:.82rem; }
+    .resource-gate > .primary { width:min(360px,100%); box-shadow:0 24px 80px #000; }
     @media (max-width:980px) { #composer { grid-template-columns:minmax(280px,420px) minmax(260px,1fr); max-width:900px; } .stage-panel { grid-row:1 / span 2; } .character-panel,.item-panel { grid-column:2; } }
-    @media (max-width:760px) { header,main { padding-left:14px; padding-right:14px; } .top { align-items:start; flex-direction:column; gap:4px; } .controls { grid-template-columns:1fr 1fr; } .controls input { grid-column:1/-1; } .details { grid-template-columns:1fr 1fr; } .preview-shell { height:min(var(--thumb),70vw); } #composer { grid-template-columns:1fr; } .stage-panel,.character-panel,.item-panel { grid-column:auto; grid-row:auto; } .costume-grid { grid-template-columns:1fr; } .gate-actions { grid-template-columns:1fr; } }
+    @media (max-width:760px) { header,main { padding-left:14px; padding-right:14px; } .top { gap:10px; } .brand-line { gap:10px; } .tryon-button { min-height:44px; padding:0 17px; } .count { font-size:.86rem; } .controls { grid-template-columns:1fr 1fr; } .controls input,.character-filter { grid-column:1/-1; } .details { grid-template-columns:1fr 1fr; } .preview-shell { height:min(var(--thumb),70vw); } #composer { grid-template-columns:1fr; } .stage-panel,.character-panel,.item-panel { grid-column:auto; grid-row:auto; } .costume-grid { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
   <aside class="resource-gate" id="resource-gate" aria-modal="true" role="dialog">
-    <div class="gate-card">
-      <h2>게임 리소스 연결</h2>
-      <p>PopTag 설치 폴더 또는 아래 IDD 파일 3개를 선택하세요. 브라우저 보안상 경로 문자열만으로는 파일을 읽을 수 없어 최초 한 번의 선택이 필요합니다.</p>
-      <div class="privacy">필요 파일: <b>fx.idd</b>, <b>EmoTE.idd</b>, <b>CharTE.idd</b><br>파일은 업로드되지 않으며 이 기기 안에서 필요한 구간만 읽습니다.</div>
-      <div class="gate-actions">
-        <button class="primary" id="choose-folder" type="button">PopTag 폴더 선택</button>
-        <button class="secondary" id="choose-files" type="button">IDD 파일 3개 선택</button>
-      </div>
-      <input id="idd-files" type="file" accept=".idd" multiple hidden>
-      <div class="gate-status" id="gate-status" aria-live="polite"></div>
-    </div>
+    <button class="primary" id="choose-folder" type="button">PopTag 폴더 선택</button>
+    <input id="idd-files" type="file" webkitdirectory directory multiple hidden>
   </aside>
   <header>
-    <div class="top"><h1>Poptag-Viewer</h1><div class="count" id="count"></div></div>
-    <nav class="tabs" aria-label="종류 선택" id="tabs"></nav>
+    <div class="top"><div class="brand-line"><h1>Poptag-Viewer</h1><button class="tryon-button" id="tryon-tab" type="button" data-category="tryon">입혀보기</button></div><div class="count" id="count"></div></div>
+    <nav class="tab-stack" aria-label="종류 선택" id="tabs"><div class="tabs" id="base-tabs"></div><div class="tabs" id="costume-tabs"></div></nav>
     <div class="controls" id="controls">
       <input class="control" id="search" type="search" placeholder="번호, 이름, 리소스 검색" autocomplete="off">
       <select class="control" id="sort" aria-label="정렬"><option value="code">번호순</option><option value="frames">프레임 많은 순</option><option value="name">이름순</option></select>
       <select class="control" id="size" aria-label="카드 크기"><option value="170">작게</option><option value="270" selected>보통</option><option value="520">크게</option></select>
+      <select class="control character-filter" id="character-filter" aria-label="미리보기 캐릭터" hidden><option value="">전체 캐릭터</option></select>
     </div>
   </header>
   <main>

@@ -13,7 +13,8 @@
   const categoryLabels = {...baseLabels, ...costumeLabels};
   const baseCategories = Object.keys(baseLabels);
   const costumeCategories = Object.keys(costumeLabels);
-  const tabCategories = [...baseCategories, ...costumeCategories];
+  const costumeInheritance = new Map([[10,4],[11,7],[12,6],[14,0],[15,8],[17,2],[18,1],[25,9],[27,19],[28,26],[29,16]]);
+  const costumeTrackingVariants = {expression:"A", mask:"A", hair:"C", head:"C", outfit:"B", accessory:"B"};
   const characterColors = [
     ["red", "빨강", "#fe0000"], ["yellow", "노랑", "#ffca10"],
     ["orange", "주황", "#ff9800"], ["green", "초록", "#7dc709"],
@@ -28,6 +29,7 @@
   const grid = $("#grid");
   const search = $("#search");
   const sort = $("#sort");
+  const characterFilter = $("#character-filter");
   const viewer = $("#viewer");
   let category = "background";
   let resourceStore = null;
@@ -293,7 +295,15 @@
   }
 
   function gateStatus(message, type = "") {
-    const element = $("#gate-status"); element.textContent = message; element.className = `gate-status ${type}`;
+    const button = $("#choose-folder");
+    if (type === "error") {
+      button.disabled = false;
+      button.textContent = "PopTag 폴더 선택";
+      alert(message);
+      return;
+    }
+    button.disabled = message.includes("확인");
+    button.textContent = button.disabled ? "확인 중…" : "PopTag 폴더 선택";
   }
 
   async function connectFiles(files, handle = null) {
@@ -371,18 +381,34 @@
     context.drawImage(frame.canvas, Math.floor((SLOT_SIZE - decoded.maxWidth) / 2), Math.floor((SLOT_SIZE - decoded.maxHeight) / 2));
   }
 
-  function drawPositioned(context, part, sourceIndex, colorKey = "red") {
+  function drawPositioned(context, part, sourceIndex, colorKey = "red", offset = [0, 0]) {
     const frame = part.decoded.frames[sourceIndex % part.decoded.frames.length];
     const record = frame.record;
     const source = part.adjust ? toCanvas(frame.canvas, colorKey) : frame.canvas;
-    context.drawImage(source, CHARACTER_DRAW_POINT[0] - record.anchorX, CHARACTER_DRAW_POINT[1] - record.anchorY);
+    context.drawImage(source, CHARACTER_DRAW_POINT[0] - record.anchorX + offset[0], CHARACTER_DRAW_POINT[1] - record.anchorY + offset[1]);
   }
 
-  function drawParts(context, parts, sourceIndex, colorKey, variants = null) {
+  function drawParts(context, parts, sourceIndex, colorKey, variants = null, offset = [0, 0]) {
     for (const part of parts) {
       if (variants && !variants.has(part.variant)) continue;
-      drawPositioned(context, part, sourceIndex, colorKey);
+      drawPositioned(context, part, sourceIndex, colorKey, offset);
     }
+  }
+
+  function characterPartOffset(characterParts, sourceIndex, preferredVariant) {
+    const hasPixels = frame => frame && frame.record.right > frame.record.left && frame.record.bottom > frame.record.top;
+    const candidates = characterParts.filter(part => part.variant === preferredVariant).sort((left, right) => Number(left.adjust) - Number(right.adjust));
+    const tracker = candidates.find(part => hasPixels(part.decoded.frames[0]) && hasPixels(part.decoded.frames[sourceIndex % part.decoded.frames.length]));
+    if (!tracker) return preferredVariant === "A" ? [0, 0] : characterPartOffset(characterParts, sourceIndex, "A");
+    const base = tracker.decoded.frames[0].record;
+    const current = tracker.decoded.frames[sourceIndex % tracker.decoded.frames.length].record;
+    return [base.originX - current.originX, base.originY - current.originY];
+  }
+
+  function costumePoseOffset(row, characterParts, sourceIndex) {
+    if (row.pose_frame == null) return [0, 0];
+    const trackingVariant = costumeTrackingVariants[row.category] || "A";
+    return characterPartOffset(characterParts, sourceIndex, trackingVariant);
   }
 
   async function prepareDefaultBackground() {
@@ -416,20 +442,23 @@
   }
 
   async function createCostumePreviewRenderer(row) {
-    const character = characterBySlot.get(row.character_slot ?? DEFAULT_CHARACTER_SLOT) || CHARACTERS[0];
+    const selected = selectedCatalogCharacter();
+    const selectedCanWear = selected && (row.character_slot == null || compatibleCostumeSlots(selected).has(row.character_slot));
+    const character = selectedCanWear ? selected : characterBySlot.get(row.character_slot ?? DEFAULT_CHARACTER_SLOT) || CHARACTERS[0];
     const [characterParts, costumeParts] = await Promise.all([prepareParts(character), prepareParts(row)]);
     return {
       draw(context, elapsed) {
-        const characterInfo = sequenceInfo(character, elapsed), costumeInfo = row.sync_character ? {sourceIndex:characterInfo.sourceIndex, sequenceIndex:characterInfo.sequenceIndex} : sequenceInfo(row, elapsed);
+        const characterInfo = sequenceInfo(character, elapsed), costumeInfo = row.pose_frame != null ? {sourceIndex:row.pose_frame, sequenceIndex:0} : row.sync_character ? {sourceIndex:characterInfo.sourceIndex, sequenceIndex:characterInfo.sequenceIndex} : sequenceInfo(row, elapsed);
+        const costumeOffset = costumePoseOffset(row, characterParts, characterInfo.sourceIndex);
         context.clearRect(0, 0, SLOT_SIZE, SLOT_SIZE);
         const hairSelected = row.category === "hair", outfitSelected = row.category === "outfit";
-        if (row.render_plane === "back") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
+        if (row.render_plane === "back") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red", null, costumeOffset);
         const baseVariants = new Set(outfitSelected ? ["A"] : ["A", "B"]);
         drawParts(context, characterParts, characterInfo.sourceIndex, "red", baseVariants);
-        if (row.render_plane === "front" && row.category === "outfit") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
-        if (row.render_plane === "front" && row.category === "expression") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
+        if (row.render_plane === "front" && row.category === "outfit") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red", null, costumeOffset);
+        if (row.render_plane === "front" && row.category === "expression") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red", null, costumeOffset);
         if (!hairSelected) drawParts(context, characterParts, characterInfo.sourceIndex, "red", new Set(["C"]));
-        if (row.render_plane === "front" && !["outfit", "expression"].includes(row.category)) drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
+        if (row.render_plane === "front" && !["outfit", "expression"].includes(row.category)) drawParts(context, costumeParts, costumeInfo.sourceIndex, "red", null, costumeOffset);
         return `${characterInfo.sourceIndex}:${costumeInfo.sourceIndex}`;
       },
     };
@@ -470,11 +499,12 @@
     previewObserver = new IntersectionObserver(entries => {
       for (const entry of entries) {
         const canvas = entry.target;
+        canvas._visible = entry.isIntersecting;
         if (!entry.isIntersecting) { previewAnimations.delete(canvas); canvas._renderer = null; continue; }
         if (canvas._loading || canvas._renderer) continue;
         canvas._loading = true;
         createRowRenderer(canvas._row).then(renderer => {
-          if (generation !== previewGeneration || !canvas.isConnected) return;
+          if (generation !== previewGeneration || !canvas.isConnected || !canvas._visible) return;
           canvas._renderer = renderer;
           const item = {renderer, context:canvas.getContext("2d"), started:performance.now(), signature:""};
           previewAnimations.set(canvas, item); drawAnimationItem(item, performance.now());
@@ -488,7 +518,10 @@
 
   function filteredRows() {
     const query = search.value.trim().toLocaleLowerCase();
-    const rows = rowsForCategory(category).filter(row => !query || [row.code, rowLabel(row), rowResource(row), ...(row.item_ids || [])].join(" ").toLocaleLowerCase().includes(query));
+    const selected = selectedCatalogCharacter(), compatibleSlots = compatibleCostumeSlots(selected);
+    const rows = rowsForCategory(category)
+      .filter(row => !selected || row.character_slot == null || compatibleSlots.has(row.character_slot))
+      .filter(row => !query || [row.code, rowLabel(row), rowResource(row), ...(row.item_ids || [])].join(" ").toLocaleLowerCase().includes(query));
     if (sort.value === "frames") rows.sort((left, right) => right.frame_count - left.frame_count || left.code - right.code);
     else if (sort.value === "name") rows.sort((left, right) => rowLabel(left).localeCompare(rowLabel(right), "ko"));
     else rows.sort((left, right) => left.code - right.code || rowLabel(left).localeCompare(rowLabel(right), "ko"));
@@ -496,14 +529,18 @@
   }
 
   function renderTabs() {
-    const tabs = tabCategories.map(key => `<button class="tab ${key === category ? "active" : ""}" data-category="${key}">${categoryLabels[key]} <span>${rowsForCategory(key).length.toLocaleString()}</span></button>`);
-    tabs.push(`<button class="tab ${category === "tryon" ? "active" : ""}" data-category="tryon">입혀보기</button>`);
-    $("#tabs").innerHTML = tabs.join("");
+    const buttons = keys => keys.map(key => `<button class="tab ${key === category ? "active" : ""}" data-category="${key}">${categoryLabels[key]} <span>${rowsForCategory(key).length.toLocaleString()}</span></button>`).join("");
+    $("#base-tabs").innerHTML = buttons(baseCategories);
+    $("#costume-tabs").innerHTML = buttons(costumeCategories);
+    $("#tryon-tab").classList.toggle("active", category === "tryon");
+    $("#tryon-tab").setAttribute("aria-pressed", String(category === "tryon"));
+    characterFilter.hidden = !costumeCategories.includes(category);
   }
 
   function renderGrid() {
     clearGridAnimations();
-    const rows = filteredRows(), total = rowsForCategory(category).length;
+    const rows = filteredRows(), selected = selectedCatalogCharacter(), compatibleSlots = compatibleCostumeSlots(selected);
+    const total = rowsForCategory(category).filter(row => !selected || row.character_slot == null || compatibleSlots.has(row.character_slot)).length;
     $("#count").textContent = `${rows.length.toLocaleString()} / ${total.toLocaleString()}개`;
     grid.innerHTML = rows.length ? rows.map(row => `<button class="card ${row.item_table_linked ? "" : "unlinked"}" data-key="${escapeHtml(row.key)}"><div class="preview-shell"><canvas class="thumb" width="148" height="148" aria-label="${escapeHtml(categoryLabels[row.category])} ${String(row.code).padStart(4, "0")} 미리보기"></canvas></div><div class="body"><div class="row"><span class="code">${escapeHtml(rowCode(row))}</span><span class="badge">${row.frame_count > 1 ? "GIF · " : ""}${row.frame_count} 프레임</span></div><div class="name">${escapeHtml(rowLabel(row))}</div><div class="resource">${escapeHtml(rowResource(row))}</div></div></button>`).join("") : `<div class="empty">조건에 맞는 항목이 없습니다.</div>`;
     for (const [index, canvas] of [...document.querySelectorAll("canvas.thumb")].entries()) canvas._row = rows[index];
@@ -544,6 +581,15 @@
 
   function selectedCostume(key) { return costumeByKey.get($(`#pick-costume-${key}`)?.value) || null; }
   function selectedColor() { return $("#pick-character-color")?.value || "red"; }
+  function selectedCatalogCharacter() {
+    return characterFilter.hidden || !characterFilter.value ? null : characterBySlot.get(Number(characterFilter.value)) || null;
+  }
+  function compatibleCostumeSlots(character) {
+    if (!character) return new Set();
+    const slots = new Set([character.code]), inherited = costumeInheritance.get(character.code);
+    if (inherited !== undefined) slots.add(inherited);
+    return slots;
+  }
 
   async function createCompositionRenderer() {
     const baseRows = Object.fromEntries(baseCategories.map(key => [key, selectedBaseRow(key)]));
@@ -559,8 +605,9 @@
     const color = selectedColor();
     const drawCostume = (context, key, elapsed, characterSource) => {
       const row = costumeRows[key]; if (!row) return "-";
-      const info = row.sync_character && characterSource != null ? {sourceIndex:characterSource} : sequenceInfo(row, elapsed);
-      drawParts(context, costumeParts[key], info.sourceIndex, color); return info.sourceIndex;
+      const info = row.pose_frame != null ? {sourceIndex:row.pose_frame} : row.sync_character && characterSource != null ? {sourceIndex:characterSource} : sequenceInfo(row, elapsed);
+      const offset = costumePoseOffset(row, characterParts, characterSource ?? 0);
+      drawParts(context, costumeParts[key], info.sourceIndex, color, null, offset); return `${info.sourceIndex}@${offset.join(",")}`;
     };
     return {
       timelineRows: [
@@ -610,17 +657,20 @@
 
   function refreshCostumePickers() {
     const character = selectedCharacter();
+    const compatibleSlots = compatibleCostumeSlots(character);
     for (const key of costumeCategories) {
       const select = $(`#pick-costume-${key}`), previous = select.value;
-      const compatible = (costumesByCategory.get(key) || []).filter(row => row.character_slot == null || row.character_slot === character?.code);
-      compatible.sort((left, right) => (left.character_slot == null ? 0 : 1) - (right.character_slot == null ? 0 : 1) || left.code - right.code || rowLabel(left).localeCompare(rowLabel(right), "ko"));
-      select.innerHTML = `<option value="">착용 안 함</option>${compatible.map(row => `<option value="${escapeHtml(row.key)}">${row.character_slot == null ? "공용" : "전용"} · ${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
+      const compatible = (costumesByCategory.get(key) || []).filter(row => row.character_slot == null || compatibleSlots.has(row.character_slot));
+      const slotRank = row => row.character_slot == null ? 0 : row.character_slot === character?.code ? 1 : 2;
+      compatible.sort((left, right) => slotRank(left) - slotRank(right) || left.code - right.code || rowLabel(left).localeCompare(rowLabel(right), "ko"));
+      select.innerHTML = `<option value="">착용 안 함</option>${compatible.map(row => `<option value="${escapeHtml(row.key)}">${row.character_slot == null ? "공용" : `${String(row.character_slot).padStart(2, "0")} 전용`} · ${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
       select.value = compatible.some(row => row.key === previous) ? previous : "";
       select.disabled = !compatible.length;
     }
   }
 
   function setupComposer() {
+    characterFilter.innerHTML = `<option value="">전체 캐릭터</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
     $("#character-pickers").innerHTML = `<div class="picker"><label for="pick-character">캐릭터</label><select id="pick-character"><option value="">착용 안 함</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div><div class="picker"><label for="pick-character-color">캐릭터 렌더색</label><div class="color-choice"><select id="pick-character-color">${characterColors.map(([value, name]) => `<option value="${value}" ${value === "red" ? "selected" : ""}>${name}</option>`).join("")}</select><span class="color-swatch" id="character-color-swatch" aria-hidden="true"></span></div></div>`;
     $("#costume-pickers").innerHTML = costumeCategories.map(key => `<div class="picker"><label for="pick-costume-${key}">${costumeLabels[key]}</label><select id="pick-costume-${key}" data-costume="${key}"></select></div>`).join("");
     $("#pickers").innerHTML = baseCategories.map(key => `<div class="picker"><label for="pick-${key}">${baseLabels[key]}</label><select id="pick-${key}" data-base="${key}"><option value="">${key === "background" ? "기본 배경" : key === "flag" ? "기본 깃발" : "착용 안 함"}</option>${(catalogByCategory.get(key) || []).map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div>`).join("") + `<button class="render-button" id="render" type="button">GIF</button>`;
@@ -641,7 +691,12 @@
     if (baseCategories.includes(row.category)) {
       const select = $(`#pick-${row.category}`); select.value = String(row.code);
     } else {
-      if (row.character_slot != null) $("#pick-character").value = String(row.character_slot);
+      const character = selectedCharacter();
+      const catalogCharacter = selectedCatalogCharacter();
+      const catalogCanWear = catalogCharacter && (row.character_slot == null || compatibleCostumeSlots(catalogCharacter).has(row.character_slot));
+      const compatibleSlots = compatibleCostumeSlots(character);
+      if (catalogCanWear) $("#pick-character").value = String(catalogCharacter.code);
+      else if (row.character_slot != null && !compatibleSlots.has(row.character_slot)) $("#pick-character").value = String(row.character_slot);
       else if (!selectedCharacter()) $("#pick-character").value = String(DEFAULT_CHARACTER_SLOT);
       refreshCostumePickers();
       $(`#pick-costume-${row.category}`).value = row.key;
@@ -722,15 +777,19 @@
     try {
       const handle = await window.showDirectoryPicker({mode:"read", id:"poptag-resources"});
       await connectFiles(await filesFromDirectory(handle), handle);
-    } catch (error) { if (error.name !== "AbortError") gateStatus(error.message, "error"); }
+    } catch (error) {
+      if (error.name === "AbortError") return;
+      if (error.name === "SecurityError" || error.name === "NotSupportedError") { $("#idd-files").click(); return; }
+      gateStatus(error.message, "error");
+    }
   }
 
   $("#choose-folder").addEventListener("click", chooseDirectory);
-  $("#choose-files").addEventListener("click", () => $("#idd-files").click());
   $("#idd-files").addEventListener("change", event => connectFiles(event.target.files));
-  [search, sort].forEach(element => element.addEventListener("input", () => resourceStore && renderGrid()));
+  [search, sort, characterFilter].forEach(element => element.addEventListener("input", () => resourceStore && renderGrid()));
   $("#size").addEventListener("input", event => { const card = Number(event.target.value), thumb = {170:112,270:180,520:360}[card]; document.documentElement.style.setProperty("--card", `${card}px`); document.documentElement.style.setProperty("--thumb", `${thumb}px`); });
   $("#tabs").addEventListener("click", event => { const tab = event.target.closest(".tab"); if (!tab) return; category = tab.dataset.category; renderTabs(); showCurrent(); });
+  $("#tryon-tab").addEventListener("click", () => { category = "tryon"; renderTabs(); showCurrent(); rebuildComposer(); });
   grid.addEventListener("click", event => { const card = event.target.closest(".card"); if (card) openRow(lookupRow(card.dataset.key)); });
   $("#try-item").addEventListener("click", tryCurrentItem);
   $("#close").addEventListener("click", () => viewer.close());
@@ -738,5 +797,5 @@
   viewer.addEventListener("click", event => { if (event.target === viewer) viewer.close(); });
 
   setupComposer(); renderTabs(); requestAnimationFrame(animationLoop);
-  restoreDirectoryHandle().then(async handle => { if (handle) await connectFiles(await filesFromDirectory(handle), handle); });
+  restoreDirectoryHandle().then(async handle => { if (handle) await connectFiles(await filesFromDirectory(handle), handle); }).catch(() => {});
 })();
