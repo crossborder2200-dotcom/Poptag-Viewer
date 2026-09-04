@@ -3,6 +3,11 @@
 
   const $ = selector => document.querySelector(selector);
   const SLOT_SIZE = 148;
+  const ID_DECO_WIDTH = 380;
+  const ID_DECO_HEIGHT = 88;
+  const ID_DECO_CELL_WIDTH = 182;
+  const ID_DECO_GAP = 16;
+  const ID_DECO_CATEGORY = "id_deco";
   const CHARACTER_DRAW_POINT = [37, 119];
   const DEFAULT_FRAME_DURATION = 120;
   const MAX_GIF_DURATION = 12000;
@@ -10,9 +15,11 @@
   const CACHE_LIMIT = 72;
   const baseLabels = {background:"배경", flag:"깃발", prop:"소품", effect:"효과"};
   const costumeLabels = {expression:"표정", hair:"가발", head:"모자", mask:"가면", outfit:"의상", accessory:"액세서리", wing:"날개", special:"특수효과"};
-  const categoryLabels = {...baseLabels, ...costumeLabels};
+  const extraLabels = {[ID_DECO_CATEGORY]:"아이디치장"};
+  const categoryLabels = {...baseLabels, ...costumeLabels, ...extraLabels};
   const baseCategories = Object.keys(baseLabels);
   const costumeCategories = Object.keys(costumeLabels);
+  const extraCategories = Object.keys(extraLabels);
   const costumeInheritance = new Map([[10,4],[11,7],[12,6],[14,0],[15,8],[17,2],[18,1],[25,9],[27,19],[28,26],[29,16]]);
   // Webpage.exe applies these hue/lightness/saturation adjustments while it
   // decodes every LayerAdjust resource. The three tables live at 0x987250,
@@ -27,6 +34,9 @@
   const catalogByCategory = new Map(baseCategories.map(category => [category, CATALOG.filter(row => row.category === category)]));
   const costumesByCategory = new Map(costumeCategories.map(category => [category, COSTUMES.filter(row => row.category === category)]));
   const costumeByKey = new Map(COSTUMES.map(row => [row.key, row]));
+  const idDecorations = Array.isArray(ID_DECOS) ? ID_DECOS : [];
+  const idDecoByKey = new Map(idDecorations.map(row => [row.key, row]));
+  const idDecoByCode = new Map(idDecorations.map(row => [row.code, row]));
   const characterBySlot = new Map(CHARACTERS.map(row => [row.code, row]));
   const grid = $("#grid");
   const search = $("#search");
@@ -40,13 +50,14 @@
   const previewAnimations = new Map();
   let modalAnimation = null;
   let composerAnimation = null;
+  let idDecoAnimation = null;
   let lastAnimationTick = 0;
 
   const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;"}[character]));
   const rowLabel = row => row.item_names?.length ? row.item_names.join(" / ") : "이름 없음 · 리소스만 있음";
-  const rowResource = row => row.render_resource || row.resource;
-  const rowsForCategory = value => baseCategories.includes(value) ? (catalogByCategory.get(value) || []) : (costumesByCategory.get(value) || []);
-  const rowPrefix = row => ({background:"BG", flag:"FLAG", prop:"PROP", effect:"FX", expression:"FACE", hair:"HAIR", head:"HEAD", mask:"MASK", outfit:"OUTFIT", accessory:"ACC", wing:"WING", special:"SPECIAL"}[row.category] || row.category.toUpperCase());
+  const rowResource = row => row.category === ID_DECO_CATEGORY ? `${row.lobby_resource} / ${row.game_resource}` : row.render_resource || row.resource;
+  const rowsForCategory = value => baseCategories.includes(value) ? (catalogByCategory.get(value) || []) : costumeCategories.includes(value) ? (costumesByCategory.get(value) || []) : value === ID_DECO_CATEGORY ? idDecorations : [];
+  const rowPrefix = row => ({background:"BG", flag:"FLAG", prop:"PROP", effect:"FX", expression:"FACE", hair:"HAIR", head:"HEAD", mask:"MASK", outfit:"OUTFIT", accessory:"ACC", wing:"WING", special:"SPECIAL", id_deco:"ID"}[row.category] || row.category.toUpperCase());
   const rowCode = row => `${rowPrefix(row)} ${String(row.code).padStart(4, "0")}`;
 
   function u32(view, offset) { return view.getUint32(offset, true); }
@@ -412,10 +423,12 @@
     }));
   }
 
-  function drawCentered(context, decoded, sourceIndex) {
+  function drawCenteredIn(context, decoded, sourceIndex, left, top, width, height) {
     const frame = decoded.frames[sourceIndex % decoded.frames.length];
-    context.drawImage(frame.canvas, Math.floor((SLOT_SIZE - decoded.maxWidth) / 2), Math.floor((SLOT_SIZE - decoded.maxHeight) / 2));
+    context.drawImage(frame.canvas, left + Math.floor((width - decoded.maxWidth) / 2), top + Math.floor((height - decoded.maxHeight) / 2));
   }
+
+  function drawCentered(context, decoded, sourceIndex) { drawCenteredIn(context, decoded, sourceIndex, 0, 0, SLOT_SIZE, SLOT_SIZE); }
 
   function drawPositioned(context, part, sourceIndex, colorKey = "red", offset = [0, 0]) {
     const frame = part.decoded.frames[sourceIndex % part.decoded.frames.length];
@@ -441,6 +454,33 @@
     }
     if (row.pose_frame != null) return {sourceIndex:row.pose_frame, sequenceIndex:0};
     return sequenceInfo(row, elapsed);
+  }
+
+  function defaultHeadbandSpec(character) {
+    return character ? RESOURCE_MANIFEST.defaults.headbands?.[character.code] || null : null;
+  }
+
+  function hidesDefaultHeadband(spec, row) {
+    if (!spec || !row || row.source_system !== "AvatarDeco" || row.character_slot !== spec.equipment_slot) return false;
+    // The client only checks target 6 (Head) and target 11 (Hair/Head
+    // compound). Ordinary target-4 wigs deliberately leave the band visible.
+    return row.raw_subtype === 6 || row.raw_subtype === 11;
+  }
+
+  function shouldShowDefaultHeadband(character, costumeRows) {
+    const spec = defaultHeadbandSpec(character);
+    return Boolean(spec && !hidesDefaultHeadband(spec, costumeRows?.head) && !hidesDefaultHeadband(spec, costumeRows?.hair));
+  }
+
+  async function prepareDefaultHeadband(character, costumeRows) {
+    if (!shouldShowDefaultHeadband(character, costumeRows)) return null;
+    const spec = defaultHeadbandSpec(character);
+    return {spec, parts:await prepareParts(spec)};
+  }
+
+  function drawDefaultHeadband(context, prepared, sourceIndex, colorKey) {
+    if (!prepared) return;
+    drawParts(context, prepared.parts, sourceIndex % prepared.spec.idle_frame_count, colorKey);
   }
 
   async function prepareDefaultBackground() {
@@ -477,7 +517,13 @@
     const selected = selectedCatalogCharacter();
     const selectedCanWear = selected && (row.character_slot == null || compatibleCostumeSlots(selected).has(row.character_slot));
     const character = selectedCanWear ? selected : characterBySlot.get(row.character_slot ?? DEFAULT_CHARACTER_SLOT) || CHARACTERS[0];
-    const [characterParts, costumeParts] = await Promise.all([prepareParts(character), prepareParts(row)]);
+    const previewCostumes = {
+      head:row.category === "head" ? row : null,
+      hair:row.category === "hair" ? row : null,
+    };
+    const [characterParts, costumeParts, defaultHeadband] = await Promise.all([
+      prepareParts(character), prepareParts(row), prepareDefaultHeadband(character, previewCostumes),
+    ]);
     return {
       draw(context, elapsed) {
         const characterInfo = sequenceInfo(character, elapsed), costumeInfo = costumeFrameInfo(row, characterInfo, elapsed);
@@ -489,13 +535,43 @@
         if (row.render_plane === "front" && row.category === "outfit") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
         if (row.render_plane === "front" && row.category === "expression") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
         if (!hairSelected) drawParts(context, characterParts, characterInfo.sourceIndex, "red", new Set(["C"]));
-        if (row.render_plane === "front" && !["outfit", "expression"].includes(row.category)) drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
+        if (row.render_plane === "front" && row.category === "hair") drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
+        drawDefaultHeadband(context, defaultHeadband, characterInfo.sourceIndex, "red");
+        if (row.render_plane === "front" && !["outfit", "expression", "hair"].includes(row.category)) drawParts(context, costumeParts, costumeInfo.sourceIndex, "red");
         return `${characterInfo.sourceIndex}:${costumeInfo.sourceIndex}`;
       },
     };
   }
 
-  async function createRowRenderer(row) { return baseCategories.includes(row.category) ? createBaseRenderer(row) : createCostumePreviewRenderer(row); }
+  function idDecoTimelineRows(row) {
+    return [
+      {frame_count:row.lobby_frame_count, frame_durations:row.lobby_frame_durations},
+      {frame_count:row.game_frame_count, frame_durations:row.game_frame_durations},
+    ];
+  }
+
+  async function createIdDecoRenderer(row) {
+    const [lobby, game] = await Promise.all([
+      resourceStore.get(row.archive, row.lobby_resource),
+      resourceStore.get(row.archive, row.game_resource),
+    ]);
+    const [lobbyTimeline, gameTimeline] = idDecoTimelineRows(row);
+    return {
+      timelineRows:[lobbyTimeline, gameTimeline],
+      draw(context, elapsed) {
+        const lobbyInfo = sequenceInfo(lobbyTimeline, elapsed), gameInfo = sequenceInfo(gameTimeline, elapsed);
+        context.clearRect(0, 0, ID_DECO_WIDTH, ID_DECO_HEIGHT);
+        drawCenteredIn(context, lobby, lobbyInfo.sourceIndex, 0, 0, ID_DECO_CELL_WIDTH, ID_DECO_HEIGHT);
+        drawCenteredIn(context, game, gameInfo.sourceIndex, ID_DECO_CELL_WIDTH + ID_DECO_GAP, 0, ID_DECO_CELL_WIDTH, ID_DECO_HEIGHT);
+        return `${lobbyInfo.sourceIndex}:${gameInfo.sourceIndex}`;
+      },
+    };
+  }
+
+  async function createRowRenderer(row) {
+    if (row.category === ID_DECO_CATEGORY) return createIdDecoRenderer(row);
+    return baseCategories.includes(row.category) ? createBaseRenderer(row) : createCostumePreviewRenderer(row);
+  }
 
   function animationLoop(now) {
     if (now - lastAnimationTick >= 45) {
@@ -503,6 +579,7 @@
       for (const item of previewAnimations.values()) drawAnimationItem(item, now);
       if (modalAnimation) drawAnimationItem(modalAnimation, now);
       if (composerAnimation) drawAnimationItem(composerAnimation, now);
+      if (idDecoAnimation) drawAnimationItem(idDecoAnimation, now);
     }
     requestAnimationFrame(animationLoop);
   }
@@ -513,7 +590,8 @@
       const signature = item.renderer.draw(item.context, elapsed);
       item.signature = signature;
     } catch (error) {
-      item.context.clearRect(0, 0, SLOT_SIZE, SLOT_SIZE);
+      const {width, height} = item.context.canvas;
+      item.context.clearRect(0, 0, width, height);
       item.context.fillStyle = "#842f38"; item.context.font = "10px sans-serif"; item.context.fillText("렌더 오류", 8, 18);
       console.error(error);
     }
@@ -540,7 +618,7 @@
           const item = {renderer, context:canvas.getContext("2d"), started:performance.now(), signature:""};
           previewAnimations.set(canvas, item); drawAnimationItem(item, performance.now());
         }).catch(error => {
-          const context = canvas.getContext("2d"); context.fillStyle = "#842f38"; context.fillRect(0, 0, SLOT_SIZE, SLOT_SIZE); console.error(error);
+          const context = canvas.getContext("2d"); context.fillStyle = "#842f38"; context.fillRect(0, 0, canvas.width, canvas.height); console.error(error);
         }).finally(() => { canvas._loading = false; });
       }
     }, {rootMargin:"300px 0px"});
@@ -563,9 +641,23 @@
     const buttons = keys => keys.map(key => `<button class="tab ${key === category ? "active" : ""}" data-category="${key}">${categoryLabels[key]} <span>${rowsForCategory(key).length.toLocaleString()}</span></button>`).join("");
     $("#base-tabs").innerHTML = buttons(baseCategories);
     $("#costume-tabs").innerHTML = buttons(costumeCategories);
+    $("#id-deco-tabs").innerHTML = buttons(extraCategories);
     $("#tryon-tab").classList.toggle("active", category === "tryon");
     $("#tryon-tab").setAttribute("aria-pressed", String(category === "tryon"));
     characterFilter.hidden = !costumeCategories.includes(category);
+  }
+
+  function rowFrameBadge(row) {
+    if (row.category === ID_DECO_CATEGORY) return `로비 ${row.lobby_frame_count} · 게임 안 ${row.game_frame_count}`;
+    return `${row.frame_count > 1 ? "GIF · " : ""}${row.frame_count} 프레임`;
+  }
+
+  function rowPreview(row) {
+    const label = `${categoryLabels[row.category]} ${String(row.code).padStart(4, "0")} 미리보기`;
+    if (row.category === ID_DECO_CATEGORY) {
+      return `<div class="preview-shell id-deco-preview"><div class="id-deco-palette"><div class="palette-labels"><span>로비</span><span>게임 안</span></div><canvas class="thumb id-deco-canvas" width="${ID_DECO_WIDTH}" height="${ID_DECO_HEIGHT}" aria-label="${escapeHtml(label)}"></canvas></div></div>`;
+    }
+    return `<div class="preview-shell"><canvas class="thumb" width="${SLOT_SIZE}" height="${SLOT_SIZE}" aria-label="${escapeHtml(label)}"></canvas></div>`;
   }
 
   function renderGrid() {
@@ -574,28 +666,37 @@
     const total = rowsForCategory(category)
       .filter(row => !selected || row.character_slot == null || compatibleSlots.has(row.character_slot)).length;
     $("#count").textContent = `${rows.length.toLocaleString()} / ${total.toLocaleString()}개`;
-    grid.innerHTML = rows.length ? rows.map(row => `<button class="card ${row.item_table_linked ? "" : "unlinked"}" data-key="${escapeHtml(row.key)}"><div class="preview-shell"><canvas class="thumb" width="148" height="148" aria-label="${escapeHtml(categoryLabels[row.category])} ${String(row.code).padStart(4, "0")} 미리보기"></canvas></div><div class="body"><div class="row"><span class="code">${escapeHtml(rowCode(row))}</span><span class="badge">${row.frame_count > 1 ? "GIF · " : ""}${row.frame_count} 프레임</span></div><div class="name">${escapeHtml(rowLabel(row))}</div><div class="resource">${escapeHtml(rowResource(row))}</div></div></button>`).join("") : `<div class="empty">조건에 맞는 항목이 없습니다.</div>`;
+    grid.innerHTML = rows.length ? rows.map(row => `<button class="card ${row.item_table_linked ? "" : "unlinked"}" data-key="${escapeHtml(row.key)}">${rowPreview(row)}<div class="body"><div class="row"><span class="code">${escapeHtml(rowCode(row))}</span><span class="badge">${escapeHtml(rowFrameBadge(row))}</span></div><div class="name">${escapeHtml(rowLabel(row))}</div><div class="resource">${escapeHtml(rowResource(row))}</div></div></button>`).join("") : `<div class="empty">조건에 맞는 항목이 없습니다.</div>`;
     for (const [index, canvas] of [...document.querySelectorAll("canvas.thumb")].entries()) canvas._row = rows[index];
     observePreviews();
   }
 
-  function lookupRow(key) { return CATALOG.find(row => row.key === key) || costumeByKey.get(key); }
+  function lookupRow(key) { return CATALOG.find(row => row.key === key) || costumeByKey.get(key) || idDecoByKey.get(key); }
 
   async function openRow(row) {
     if (!row) return;
-    $("#vcode").textContent = `${rowCode(row)} · ${row.frame_count} 프레임`;
+    const isIdDeco = row.category === ID_DECO_CATEGORY;
+    $("#vcode").textContent = isIdDeco ? `${rowCode(row)} · 로비 ${row.lobby_frame_count} / 게임 안 ${row.game_frame_count} 프레임` : `${rowCode(row)} · ${row.frame_count} 프레임`;
     $("#vname").textContent = rowLabel(row);
     const tryButton = $("#try-item"); tryButton.dataset.key = row.key;
-    const details = [
+    const details = isIdDeco ? [
+      ["종류", categoryLabels[row.category]], ["로비 리소스", row.lobby_resource],
+      ["게임 안 리소스", row.game_resource], ["로비 크기", row.lobby_frame_dimensions.join(", ")],
+      ["게임 안 크기", row.game_frame_dimensions.join(", ")], ["아이템 ID", row.item_ids?.length ? row.item_ids.join(", ") : "없음"],
+    ] : [
       ["종류", categoryLabels[row.category]], ["리소스", rowResource(row)],
       ["크기", row.frame_dimensions.join(", ")], ["표시 형식", row.frame_count > 1 ? "움직이는 GIF" : "정지 이미지"],
       ["아이템 ID", row.item_ids?.length ? row.item_ids.join(", ") : "없음"],
     ];
     $("#details").innerHTML = details.map(([key, value]) => `<div class="detail"><small>${key}</small><div>${escapeHtml(value)}</div></div>`).join("");
+    const canvas = $("#modal-canvas"), shell = $("#modal-shell"), paletteLabels = $("#modal-palette-labels");
+    canvas.width = isIdDeco ? ID_DECO_WIDTH : SLOT_SIZE;
+    canvas.height = isIdDeco ? ID_DECO_HEIGHT : SLOT_SIZE;
+    shell.classList.toggle("id-deco-mode", isIdDeco);
+    paletteLabels.hidden = !isIdDeco;
     viewer.showModal();
     try {
       const renderer = await createRowRenderer(row);
-      const canvas = $("#modal-canvas");
       modalAnimation = {renderer, context:canvas.getContext("2d"), started:performance.now(), signature:""};
       drawAnimationItem(modalAnimation, performance.now());
     } catch (error) { alert(`미리보기를 만들지 못했습니다. ${error.message}`); }
@@ -604,6 +705,11 @@
   function selectedBaseRow(key) {
     const value = $(`#pick-${key}`)?.value;
     return value ? (catalogByCategory.get(key) || []).find(row => String(row.code) === value) : null;
+  }
+
+  function selectedIdDecoration() {
+    const value = $("#pick-id-deco")?.value;
+    return value ? idDecoByCode.get(Number(value)) || null : null;
   }
 
   function selectedCharacter() {
@@ -627,8 +733,9 @@
     const baseRows = Object.fromEntries(baseCategories.map(key => [key, selectedBaseRow(key)]));
     const character = selectedCharacter();
     const costumeRows = Object.fromEntries(costumeCategories.map(key => [key, selectedCostume(key)]));
-    const [defaultBackground, defaultFlag, characterParts, ...loaded] = await Promise.all([
+    const [defaultBackground, defaultFlag, characterParts, defaultHeadband, ...loaded] = await Promise.all([
       prepareDefaultBackground(), prepareDefaultFlag(), character ? prepareParts(character) : Promise.resolve([]),
+      prepareDefaultHeadband(character, costumeRows),
       ...baseCategories.map(key => baseRows[key] ? prepareParts(baseRows[key]) : Promise.resolve([])),
       ...costumeCategories.map(key => costumeRows[key] ? prepareParts(costumeRows[key]) : Promise.resolve([])),
     ]);
@@ -664,6 +771,7 @@
           if (costumeRows.expression?.render_plane !== "back") signature.push(`expression:${drawCostume(context, "expression", elapsed, charInfo.sourceIndex)}`);
           if (!costumeRows.hair) drawParts(context, characterParts, charInfo.sourceIndex, color, new Set(["C"]));
           else if (costumeRows.hair.render_plane !== "back") signature.push(`hair:${drawCostume(context, "hair", elapsed, charInfo.sourceIndex)}`);
+          if (defaultHeadband) { drawDefaultHeadband(context, defaultHeadband, charInfo.sourceIndex, color); signature.push(`default-headband:${charInfo.sourceIndex % defaultHeadband.spec.idle_frame_count}`); }
           for (const key of ["head", "mask", "accessory", "wing", "special"]) if (costumeRows[key]?.render_plane !== "back") signature.push(`${key}:${drawCostume(context, key, elapsed, charInfo.sourceIndex)}`);
           signature.push(`c${charInfo.sourceIndex}`);
         } else {
@@ -680,10 +788,18 @@
     if (!resourceStore) return;
     const generation = ++composerBuild;
     try {
-      const renderer = await createCompositionRenderer();
+      const idDecoration = selectedIdDecoration();
+      const [renderer, idRenderer] = await Promise.all([
+        createCompositionRenderer(),
+        idDecoration ? createIdDecoRenderer(idDecoration) : Promise.resolve(null),
+      ]);
       if (generation !== composerBuild) return;
       composerAnimation = {renderer, context:$("#stage-canvas").getContext("2d"), started:performance.now(), signature:""};
       drawAnimationItem(composerAnimation, performance.now());
+      const idContext = $("#id-deco-canvas").getContext("2d");
+      idDecoAnimation = idRenderer ? {renderer:idRenderer, context:idContext, started:performance.now(), signature:""} : null;
+      if (idDecoAnimation) drawAnimationItem(idDecoAnimation, performance.now());
+      else idContext.clearRect(0, 0, ID_DECO_WIDTH, ID_DECO_HEIGHT);
     } catch (error) { console.error(error); }
   }
 
@@ -706,6 +822,7 @@
     $("#character-pickers").innerHTML = `<div class="picker"><label for="pick-character">캐릭터</label><select id="pick-character"><option value="">착용 안 함</option>${CHARACTERS.map(row => `<option value="${row.code}">${String(row.code).padStart(2, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div><div class="picker"><label for="pick-character-color">캐릭터 렌더색</label><div class="color-choice"><select id="pick-character-color">${characterColors.map(([value, name]) => `<option value="${value}" ${value === "red" ? "selected" : ""}>${name}</option>`).join("")}</select><span class="color-swatch" id="character-color-swatch" aria-hidden="true"></span></div></div>`;
     $("#costume-pickers").innerHTML = costumeCategories.map(key => `<div class="picker"><label for="pick-costume-${key}">${costumeLabels[key]}</label><select id="pick-costume-${key}" data-costume="${key}"></select></div>`).join("");
     $("#pickers").innerHTML = baseCategories.map(key => `<div class="picker"><label for="pick-${key}">${baseLabels[key]}</label><select id="pick-${key}" data-base="${key}"><option value="">${key === "background" ? "기본 배경" : key === "flag" ? "기본 깃발" : "착용 안 함"}</option>${(catalogByCategory.get(key) || []).map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}</select></div>`).join("") + `<button class="render-button" id="render" type="button">GIF</button>`;
+    $("#pick-id-deco").innerHTML = `<option value="">착용 안 함</option>${idDecorations.map(row => `<option value="${row.code}">${String(row.code).padStart(4, "0")} · ${escapeHtml(rowLabel(row))}</option>`).join("")}`;
     $("#character-color-swatch").style.background = colorSwatch("red");
     refreshCostumePickers();
     $("#character-pickers").addEventListener("change", event => {
@@ -715,12 +832,20 @@
     });
     $("#costume-pickers").addEventListener("change", rebuildComposer);
     $("#pickers").addEventListener("change", rebuildComposer);
+    $("#pick-id-deco").addEventListener("change", () => {
+      $("#render-id-deco").disabled = !selectedIdDecoration();
+      rebuildComposer();
+    });
     $("#render").addEventListener("click", renderCompositionGif);
+    $("#render-id-deco").addEventListener("click", renderIdDecoGif);
   }
 
   function tryCurrentItem() {
     const row = lookupRow($("#try-item").dataset.key); if (!row) return;
-    if (baseCategories.includes(row.category)) {
+    if (row.category === ID_DECO_CATEGORY) {
+      $("#pick-id-deco").value = String(row.code);
+      $("#render-id-deco").disabled = false;
+    } else if (baseCategories.includes(row.category)) {
       const select = $(`#pick-${row.category}`); select.value = String(row.code);
     } else {
       const character = selectedCharacter();
@@ -793,6 +918,25 @@
       button.textContent = `${frames.length}프레임 저장 완료`;
     } catch (error) { alert(`GIF 저장에 실패했습니다. ${error.message}`); }
     finally { setTimeout(() => { button.disabled = false; button.textContent = "GIF"; }, 900); }
+  }
+
+  async function renderIdDecoGif() {
+    const row = selectedIdDecoration(), button = $("#render-id-deco");
+    if (!row) return;
+    button.disabled = true; button.textContent = "만드는 중…";
+    try {
+      const renderer = await createIdDecoRenderer(row), timeline = timelineFor(renderer.timelineRows);
+      const canvas = document.createElement("canvas"); canvas.width = ID_DECO_WIDTH; canvas.height = ID_DECO_HEIGHT;
+      const context = canvas.getContext("2d", {willReadFrequently:true}), frames = [], durations = [];
+      for (const segment of timeline) {
+        renderer.draw(context, segment.start);
+        frames.push(context.getImageData(0, 0, ID_DECO_WIDTH, ID_DECO_HEIGHT)); durations.push(segment.duration);
+      }
+      const url = URL.createObjectURL(makeGif(frames, durations, ID_DECO_WIDTH, ID_DECO_HEIGHT)), anchor = document.createElement("a");
+      anchor.download = `poptag-id-${String(row.code).padStart(4, "0")}-${frames.length}프레임.gif`; anchor.href = url; anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000); button.textContent = `${frames.length}프레임 저장 완료`;
+    } catch (error) { alert(`GIF 저장에 실패했습니다. ${error.message}`); }
+    finally { setTimeout(() => { button.disabled = !selectedIdDecoration(); button.textContent = "GIF"; }, 900); }
   }
 
   function showCurrent() {
