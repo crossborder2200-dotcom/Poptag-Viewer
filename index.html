@@ -37,6 +37,14 @@
     .control { min-height:44px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:0 13px; }
     .character-filter { min-width:220px; }
     .character-filter[hidden] { display:none; }
+    .catalog-character-tools { display:flex; align-items:stretch; gap:9px; min-width:0; }
+    .catalog-character-tools[hidden] { display:none; }
+    .rotate-character { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:128px; padding:0 12px; border-color:#3d6379; color:var(--cyan); cursor:pointer; white-space:nowrap; font-size:.85rem; font-weight:800; transition:background .16s,border-color .16s; }
+    .rotate-character:hover { background:#183043; border-color:var(--cyan); }
+    .rotate-character:active svg { transform:rotate(90deg); }
+    .rotate-character svg { flex:none; width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; transition:transform .16s; }
+    .rotation-copy { display:grid; gap:1px; text-align:left; line-height:1.25; }
+    .rotation-direction { color:var(--muted); font-size:.7rem; font-weight:500; }
     input:focus,select:focus,button:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
     main { padding:22px 24px 80px; }
     #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--card)),1fr)); gap:14px; }
@@ -152,8 +160,10 @@
     html[lang="zh-Hant"] body { font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif; }
     @media (min-width:1181px) and (min-height:820px) { .preview-palette { position:sticky; top:18px; max-height:calc(100vh - 36px); overflow:auto; } }
     @media (max-width:1180px) { #composer { grid-template-columns:1fr; max-width:980px; } .composer-sidebar { grid-template-columns:minmax(300px,.72fr) minmax(0,1.28fr); align-items:start; } }
+    @media (max-width:1100px) { .controls { grid-template-columns:minmax(0,1fr) auto auto; } .catalog-character-tools { grid-column:1/-1; justify-content:flex-end; } }
     @media (max-width:760px) { header,main { padding-left:14px; padding-right:14px; } .top { gap:10px; padding-right:90px; } .language-switch { top:12px; right:14px; } .language-switch button { min-width:38px; padding:0 7px; } .brand-line { gap:10px; } .tryon-button { min-height:44px; padding:0 17px; } .count { font-size:.86rem; } .controls { grid-template-columns:1fr 1fr; } .controls input,.character-filter { grid-column:1/-1; } .details { grid-template-columns:1fr 1fr; } .preview-shell { height:min(var(--thumb),70vw); } .preview-shell.id-deco-preview { height:112px; } .preview-workspace { grid-template-columns:1fr; grid-template-areas:"movement" "slot" "id"; padding:10px; } .composer-sidebar { grid-template-columns:1fr; } .character-grid,.costume-grid,#pickers,.preview-picker-grid { grid-template-columns:1fr; row-gap:12px; } .movement-head { align-items:flex-start; flex-direction:column; } .movement-scale-control { align-self:stretch; } .movement-scale-control button { flex:1; } }
     @media (max-width:760px) { .top { padding-right:0; padding-top:36px; flex-wrap:wrap; } }
+    @media (max-width:760px) { .catalog-character-tools { grid-column:1/-1; } .catalog-character-tools .character-filter { min-width:0; flex:1; width:0; } .rotate-character { min-width:116px; } }
   </style>
 </head>
 <body>
@@ -173,7 +183,10 @@
       <input class="control" id="search" type="search" placeholder="번호, 이름, 리소스 검색" data-i18n-placeholder="search.placeholder" autocomplete="off">
       <select class="control" id="sort" aria-label="정렬" data-i18n-aria="sort.label"><option value="code" data-i18n="sort.code">번호순</option><option value="frames" data-i18n="sort.frames">프레임 많은 순</option><option value="name" data-i18n="sort.name">이름순</option></select>
       <select class="control" id="size" aria-label="카드 크기" data-i18n-aria="card_size.label"><option value="170" data-i18n="size.small">작게</option><option value="270" selected data-i18n="size.medium">보통</option><option value="520" data-i18n="size.large">크게</option></select>
-      <select class="control character-filter" id="character-filter" aria-label="미리보기 캐릭터" data-i18n-aria="character.preview_filter" hidden><option value="">전체 캐릭터</option></select>
+      <div class="catalog-character-tools" id="catalog-character-tools" hidden>
+        <select class="control character-filter" id="character-filter" aria-label="미리보기 캐릭터" data-i18n-aria="character.preview_filter" hidden><option value="">전체 캐릭터</option></select>
+        <button class="control rotate-character" id="rotate-character" type="button" data-direction="down" aria-label="캐릭터를 시계방향으로 90° 회전 · 현재 정면" title="캐릭터를 시계방향으로 90° 회전 · 현재 정면"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10a8 8 0 1 0-2.2 8.1M20 4v6h-6"/></svg><span class="rotation-copy"><span data-i18n="character.rotate">캐릭터 회전</span><span class="rotation-direction" id="catalog-direction" aria-live="polite">정면</span></span></button>
+      </div>
     </div>
   </header>
   <main>
@@ -187,18 +200,18 @@
     <div class="modal-head"><div class="modal-title"><strong id="vcode"></strong><span id="vname"></span></div><div class="modal-actions"><button class="try-button" id="try-item" type="button" data-i18n="action.equip">착용</button><button class="close" id="close" type="button" aria-label="닫기" data-i18n-aria="modal.close">×</button></div></div>
     <div class="modal-content"><div class="full-shell" id="modal-shell"><div class="modal-palette"><div class="palette-labels" id="modal-palette-labels" hidden><span data-i18n="palette.lobby">로비</span><span data-i18n="palette.in_game">게임 안</span></div><canvas id="modal-canvas" width="148" height="148"></canvas></div></div><div class="details" id="details"></div></div>
   </dialog>
-  <script src="translations.js?v=20260905-15"></script>
-  <script src="translations.tw.js?v=20260905-15"></script>
-  <script src="resource-translations.auto.js?v=20260905-15"></script>
-  <script src="resource-translations.manual.js?v=20260905-15"></script>
-  <script src="resource-translations.tw.auto.js?v=20260905-15"></script>
-  <script src="resource-translations.tw.manual.js?v=20260905-15"></script>
-  <script src="catalog-data.js?v=20260905-15"></script>
-  <script src="characters-data.js?v=20260905-15"></script>
-  <script src="costumes-data.js?v=20260905-15"></script>
-  <script src="id-deco-data.js?v=20260905-15"></script>
-  <script src="bombs-data.js?v=20260905-15"></script>
-  <script src="resource-data.js?v=20260905-15"></script>
-  <script src="viewer.js?v=20260905-15"></script>
+  <script src="translations.js?v=20260906-01"></script>
+  <script src="translations.tw.js?v=20260906-01"></script>
+  <script src="resource-translations.auto.js?v=20260906-01"></script>
+  <script src="resource-translations.manual.js?v=20260906-01"></script>
+  <script src="resource-translations.tw.auto.js?v=20260906-01"></script>
+  <script src="resource-translations.tw.manual.js?v=20260906-01"></script>
+  <script src="catalog-data.js?v=20260906-01"></script>
+  <script src="characters-data.js?v=20260906-01"></script>
+  <script src="costumes-data.js?v=20260906-01"></script>
+  <script src="id-deco-data.js?v=20260906-01"></script>
+  <script src="bombs-data.js?v=20260906-01"></script>
+  <script src="resource-data.js?v=20260906-01"></script>
+  <script src="viewer.js?v=20260906-01"></script>
 </body>
 </html>
